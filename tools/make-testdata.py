@@ -51,6 +51,8 @@ AUTH = "Basic " + base64.b64encode(("%s:%s" % (USER, PASS)).encode()).decode()
 
 SPACE_A = "AJA"
 SPACE_B = "AJB"
+# 규모 측정 전용. AJA/AJB 는 라벨 픽스처라 건드리지 않는다(docs/01 이 그걸 대조했다).
+SPACE_C = "AJC"
 
 
 def call(method, path, body=None, headers=None, data=None):
@@ -153,12 +155,63 @@ def png(seed, size=512):
     return head + (filler * ((size // len(filler)) + 1))[:size - len(head)]
 
 
+def make_bulk_pages(count, versions):
+    """AJC 에 본문 있는 페이지를 대량으로 만든다.
+
+    본문 단계의 비용은 축이 **둘**이다. 페이지 수(`getPages(space, true)` 가 전부
+    메모리에 올린다)와 이력 깊이(`walkHistory` 가 버전마다 본문을 하나씩 더 읽는다).
+    한 축만 늘리면 어느 쪽이 비싼지 못 가른다.
+
+    페이지마다 첨부 하나를 붙이고 모든 버전 본문이 그 첨부를 참조하게 한다. 그래야
+    참조 인덱스가 실제로 차고, 라벨 판정까지 규모를 타 본다.
+    """
+    ensure_space(SPACE_C, "Attachment Janitor Bulk C")
+    print("AJC: 페이지 %d개 x 버전 %d (본문 %d건)" % (count, versions, count * versions))
+
+    # 저장 형식 변환은 한 번만 한다 — count x versions 번 부르면 픽스처가 스캔보다 느리다.
+    templates = [to_storage("본문 %d 회차.\n\n!bulk-page-%%05d.png!" % revision)
+                 for revision in range(versions)]
+
+    for index in range(count):
+        title = "bulk-page-%05d" % index
+        page = find_content(SPACE_C, title)
+        if page is None:
+            page = call("POST", "/rest/api/content", {
+                "type": "page", "title": title, "space": {"key": SPACE_C},
+                "body": {"storage": {"value": templates[0] % index,
+                                     "representation": "storage"}},
+            })
+        # 이미 붙어 있으면 다시 올리지 않는다. 다시 올리면 첨부 버전이 늘어나서
+        # 본문 축을 재려던 측정이 첨부 축까지 건드린다.
+        already = call("GET", "/rest/api/content/%s/child/attachment?filename=%s.png"
+                       % (page["id"], urllib.request.quote(title)))
+        if not already["results"]:
+            upload(page["id"], "%s.png" % title, png(title))
+
+        number = page["version"]["number"]
+        for revision in range(1, versions):
+            number += 1
+            page = call("PUT", "/rest/api/content/" + page["id"], {
+                "id": page["id"], "type": "page", "title": title,
+                "space": {"key": SPACE_C},
+                "body": {"storage": {"value": templates[revision] % index,
+                                     "representation": "storage"}},
+                "version": {"number": number},
+            })
+        if index % 50 == 0:
+            print("  bulk-page %d/%d" % (index, count))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--big-mb", type=int, default=3,
                         help="[대용량] 배지 확인용 파일 크기(MB)")
     parser.add_argument("--bulk", type=int, default=0,
                         help="성능 측정용으로 AJB/bulk 페이지에 추가로 붙일 첨부 수")
+    parser.add_argument("--bulk-pages", type=int, default=0,
+                        help="AJC 에 만들 페이지 수 (본문 단계 규모 측정용)")
+    parser.add_argument("--bulk-versions", type=int, default=1,
+                        help="--bulk-pages 각 페이지를 몇 번 고칠지. 과거 버전 = 이 값 - 1")
     args = parser.parse_args()
 
     ensure_space(SPACE_A, "Attachment Janitor Fixture A")
@@ -265,6 +318,9 @@ def main():
         print("  스페이스 설명 갱신")
     except SystemExit as error:
         print("  스페이스 설명은 REST 로 못 고쳤다: %s" % str(error)[:120])
+
+    if args.bulk_pages:
+        make_bulk_pages(args.bulk_pages, args.bulk_versions)
 
     if args.bulk:
         bulk = ensure_content(SPACE_B, "bulk", "성능 측정용 첨부 더미.")

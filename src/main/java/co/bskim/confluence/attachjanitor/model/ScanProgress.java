@@ -44,6 +44,14 @@ public class ScanProgress
      * processed 가 이걸 넘길 수 있다.
      */
     public final int expected;
+    /**
+     * 본문 단계가 지금까지 읽은 본문 수. 다른 단계에서는 0 이다.
+     *
+     * <p>본문은 총계를 미리 알 수 없다 — 페이지 수도 이력 깊이도 스페이스마다 다르다.
+     * 그래서 분모(스페이스 수)와 별개로 "몇 건 읽었는지"를 함께 낸다. 이게 없으면
+     * 페이지가 많은 스페이스 하나를 도는 동안 화면이 멈춘 것처럼 보인다(실측 24번).
+     */
+    public final int bodies;
     public final Date startedAt;
     public final Date finishedAt;
     public final String message;
@@ -51,10 +59,17 @@ public class ScanProgress
     public ScanProgress(State state, Phase phase, int processed, int expected,
                         Date startedAt, Date finishedAt, String message)
     {
+        this(state, phase, processed, expected, 0, startedAt, finishedAt, message);
+    }
+
+    public ScanProgress(State state, Phase phase, int processed, int expected, int bodies,
+                        Date startedAt, Date finishedAt, String message)
+    {
         this.state = state;
         this.phase = phase == null ? Phase.NONE : phase;
         this.processed = processed;
         this.expected = expected;
+        this.bodies = bodies;
         this.startedAt = startedAt;
         this.finishedAt = finishedAt;
         this.message = message;
@@ -67,13 +82,18 @@ public class ScanProgress
 
     public ScanProgress at(Phase newPhase, int newProcessed, int newExpected)
     {
-        return new ScanProgress(State.RUNNING, newPhase, newProcessed, newExpected,
+        return at(newPhase, newProcessed, newExpected, 0);
+    }
+
+    public ScanProgress at(Phase newPhase, int newProcessed, int newExpected, int newBodies)
+    {
+        return new ScanProgress(State.RUNNING, newPhase, newProcessed, newExpected, newBodies,
                 startedAt, null, null);
     }
 
     public ScanProgress ended(State newState, String newMessage)
     {
-        return new ScanProgress(newState, Phase.NONE, processed, expected,
+        return new ScanProgress(newState, Phase.NONE, processed, expected, bodies,
                 startedAt, new Date(), newMessage);
     }
 
@@ -87,9 +107,18 @@ public class ScanProgress
     {
         if (state != State.RUNNING)
         {
-            return state == State.IDLE ? -1 : 100;
+            // 끝난 것과 완주한 것은 다르다. 취소·실패에 100% 를 찍으면 화면이
+            // "다 됐다"고 말하게 된다.
+            return state == State.DONE ? 100 : -1;
         }
         if (expected <= 0)
+        {
+            return -1;
+        }
+        // 본문 단계는 분모가 스페이스 수라 비율이 실제 진척과 안 맞는다 — 큰 스페이스
+        // 하나를 도는 몇 분 동안 0% 로 앉아 있게 된다. 지어내지 않고 "모름"으로 낸다.
+        // 대신 읽은 본문 수(bodies)가 계속 올라가고 화면이 그걸 보여준다.
+        if (phase == Phase.BODIES)
         {
             return -1;
         }

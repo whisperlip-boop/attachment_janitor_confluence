@@ -47,6 +47,18 @@
     var pollTimer = null;
     var lastPayload = null;
     var filters = {label: '', badge: '', extension: '', minBytes: 0, query: ''};
+    /* 표를 한 장에 다 그리면 실제 인스턴스에서 수천 줄이 된다. 쪽으로 끊는다. */
+    var paging = {size: 50, page: 1};
+    /* 고른 첨부. **렌더 밖에 둔다** — 표 안에 두면 쪽을 넘기는 순간 선택이 날아간다.
+       그리고 "전체 선택"은 보고 있는 쪽이 아니라 필터에 걸린 전체를 뜻한다. */
+    var picked = {};
+    var lastVisible = [];
+    /* 방금 정리한 것. 표는 **저장된 스캔**이라 우리가 지운 것을 모르고, 다음 스캔까지
+       "구버전 27개"라고 계속 말한다. 그 상태로 두면 지울 것 없는 파일에 체크박스가
+       남아서 눌러도 아무 일도 안 일어난다. 새 스캔이 오면 버린다. */
+    var cleaned = {};
+    var cleanedForRun = null;
+    var keepVersions = 3;
 
     /* ------------------------------------------------------------------ 공통 */
 
@@ -119,6 +131,18 @@
             if (xhr.status === 401 || xhr.status === 403) {
                 stopPolling();
                 idleButtons();
+                /* 웹수도가 풀린 것과 권한이 없는 것은 다르다. 전자는 다시 인증하면
+                   되는데 "권한이 없습니다"만 내면 관리자가 할 수 있는 일이 없어진다. */
+                var why = null;
+                try {
+                    why = JSON.parse(xhr.responseText);
+                } catch (error) {
+                    why = null;
+                }
+                if (why && why.websudo) {
+                    banner('warn', text('aj.error.websudo'));
+                    return;
+                }
                 banner('error', text('aj.error.forbidden'));
                 return;
             }
@@ -217,11 +241,19 @@
 
         if (progress && progress.running) {
             var phase = text(progress.phaseKey || 'aj.phase.none');
-            var label = format(text('aj.state.scanning'), phase, number(progress.processed));
-            var width = progress.percent < 0 ? 100 : progress.percent;
+            /* 본문 단계의 processed 는 스페이스 수라 너무 작아서 멈춘 것처럼 보인다.
+               읽은 본문 수를 대신 보여준다 — 그게 실제로 움직이는 숫자다. */
+            var count = progress.phase === 'BODIES' && progress.bodies
+                ? progress.bodies : progress.processed;
+            var label = format(text('aj.state.scanning'), phase, number(count));
+            /* 총계를 모르는 단계는 비율을 지어내지 않는다. 흐르는 막대로 둔다. */
+            var unknown = progress.percent < 0;
+            var bar = unknown
+                ? '<div class="aj-progress aj-progress-unknown"><span></span></div>'
+                : '<div class="aj-progress"><span style="width:' + progress.percent
+                    + '%"></span></div>';
             parts += '<div class="aj-banner aj-banner-info">' + escape(label)
-                + '<div class="aj-progress"><span style="width:' + width
-                + '%"></span></div></div>';
+                + bar + '</div>';
         }
         if (run && run.status === 'FAILED') {
             parts += '<div class="aj-banner aj-banner-error">'
@@ -280,8 +312,20 @@
             + escape(text(payload.run ? 'aj.state.noresults' : 'aj.state.never')) + '</p>';
     }
 
+    /**
+     * 표 머리 한 칸.
+     *
+     * `<칸 키>.tip` 이 번들에 있으면 마우스를 올렸을 때 뜻이 나온다. 칸 이름만으로
+     * 뜻이 통하지 않는 칸이 있고("확보 가능 용량"이 무엇에서 확보되는지 같은),
+     * 그걸 설명서에만 적어 두면 아무도 안 읽는다.
+     */
     function th(key, klass) {
-        return '<th class="' + klass.trim() + '">' + escape(text(key)) + '</th>';
+        var tip = strings[key + '.tip'];
+        return '<th class="' + klass.trim() + '"'
+            + (tip ? ' title="' + escape(tip) + '"' : '')
+            + '>' + escape(text(key))
+            + (tip ? '<span class="aj-tip" aria-hidden="true">?</span>' : '')
+            + '</th>';
     }
 
     function num(value, klass) {
@@ -345,8 +389,12 @@
                     + escape(name) + '</a>'
                 : escape(name);
 
+            /* 막대에도 말을 붙인다. 색만 두면 장식으로 읽히고, 장식으로 읽히는
+               색은 아무 정보도 주지 않는다. 범례는 표 아래에 따로 있다. */
+            var barTitle = format(text('aj.bar.title'),
+                bytes(total - old), bytes(old), bytes(largest));
             return '<tr><td>' + link
-                + '<span class="aj-bar-cell">'
+                + '<span class="aj-bar-cell" title="' + escape(barTitle) + '">'
                 + '<span class="aj-bar-fill" style="width:' + latestWidth + '%"></span>'
                 + '<span class="aj-bar-fill aj-bar-fill-old" style="width:' + oldWidth
                 + '%;margin-top:-4px;margin-left:' + latestWidth + '%"></span>'
@@ -365,6 +413,14 @@
         }).join('');
 
         tableBox.innerHTML = head + body + '</tbody></table>'
+            + '<p class="aj-legend">'
+            + '<span class="aj-swatch aj-swatch-latest"></span>'
+            + escape(text('aj.bar.latest'))
+            + '<span class="aj-swatch aj-swatch-old"></span>'
+            + escape(text('aj.bar.old'))
+            + '<span class="aj-swatch aj-swatch-rest"></span>'
+            + escape(text('aj.bar.rest'))
+            + '</p>'
             + '<p class="aj-foot">' + escape(text('aj.note.nospace')) + '</p>';
         if (csvLink) {
             csvLink.setAttribute('href', api + '/spaces.csv');
@@ -389,7 +445,11 @@
         }
 
         var rows = payload.attachments || [];
+        // 저장된 스캔에 방금 정리한 것을 반영한다. 이게 없으면 표가 거짓말을 한다.
+        rows.forEach(applyCleaned);
+
         var visible = rows.filter(matchesFilters);
+        lastVisible = visible;
         var totals = visible.reduce(function (acc, row) {
             acc.files++;
             acc.bytes += (Number(row.latestBytes) || 0) + (Number(row.oldVersionBytes) || 0);
@@ -418,7 +478,25 @@
             return (b.latestBytes + b.oldVersionBytes) - (a.latestBytes + a.oldVersionBytes);
         });
 
+        /* "구버전이 있나"가 아니라 "지금 유지 개수로 지울 것이 있나"로 가른다.
+           최근 3개 유지인데 구버전이 2개뿐이면 지울 것이 없고, 그런 줄에 체크박스를
+           두면 눌러도 아무 일도 안 일어난다. */
+        var cleanable = visible.filter(function (row) {
+            return removableAt(row, keepVersions) > 0;
+        });
+        var allPicked = cleanable.length > 0 && cleanable.every(function (row) {
+            return picked[row.attachmentId];
+        });
+
         var head = '<table class="aj-table"><thead><tr>'
+            /* 체크박스가 무엇에 대한 것인지 칸 머리에 적는다. 그냥 두면 "이 파일을
+               지운다"로 읽히는데, 실제로 지워지는 것은 [구버전] 칸이다. */
+            + '<th class="aj-pick" title="' + escape(text('aj.col.pick.tip')) + '">'
+            + '<input type="checkbox" id="aj-pick-all"'
+            + (allPicked ? ' checked' : '')
+            + (cleanable.length ? '' : ' disabled')
+            + ' title="' + escape(text('aj.clean.pickall')) + '">'
+            + '<span class="aj-tip" aria-hidden="true">?</span></th>'
             + th('aj.col.filename', '') + th('aj.col.container', '')
             + th('aj.col.label', '') + th('aj.col.badges', '')
             + th('aj.col.latest', ' aj-num') + th('aj.col.versions', ' aj-num')
@@ -426,7 +504,15 @@
             + th('aj.col.refs', ' aj-num')
             + '</tr></thead><tbody>';
 
-        var body = visible.map(function (row, index) {
+        /* 쪽 자르기. 정렬한 뒤에 자른다 — 자르고 정렬하면 쪽마다 순서가 달라진다. */
+        var pageCount = Math.max(1, Math.ceil(visible.length / paging.size));
+        if (paging.page > pageCount) {
+            paging.page = pageCount;
+        }
+        var from = (paging.page - 1) * paging.size;
+        var pageRows = visible.slice(from, from + paging.size);
+
+        var body = pageRows.map(function (row, index) {
             var container = row.containerId
                 ? '<a href="' + escape(contentUrl(row.containerId)) + '">'
                     + escape(row.containerTitle || row.containerId) + '</a>'
@@ -435,7 +521,20 @@
                 ? '<a href="#" class="aj-expand" data-row="' + index + '">'
                     + escape(number(row.refCount)) + '</a>'
                 : '<span class="aj-none">-</span>';
-            return '<tr><td>' + escape(row.fileName) + '</td>'
+            /* 구버전이 없는 행에는 체크박스 자체를 두지 않는다 — 비활성이 아니라
+               없음. 지울 것이 없는 줄에 지우는 조작을 놓지 않는다.
+               **라벨로 가리지 않는다**: 구버전 삭제는 어떤 라벨에서도 본문 참조를
+               깨뜨릴 수 없다(실측 31번). 라벨로 가리면 없는 규칙을 새기게 된다. */
+            var removable = removableAt(row, keepVersions);
+            var pick = removable > 0
+                ? '<input type="checkbox" class="aj-pick-one" data-id="'
+                    + escape(String(row.attachmentId)) + '"'
+                    + ' title="' + escape(format(text('aj.clean.picktip'),
+                        number(removable))) + '"'
+                    + (picked[row.attachmentId] ? ' checked' : '') + '>'
+                : '';
+            return '<tr><td class="aj-pick">' + pick + '</td>'
+                + '<td>' + escape(row.fileName) + '</td>'
                 + '<td>' + container + '<div class="aj-meta">'
                 + escape(row.containerType) + '</div></td>'
                 + '<td>' + labelChip(row.label, shown.historyScanned) + '</td>'
@@ -448,15 +547,29 @@
                 + num(row.lastModified ? localTime(row.lastModified) : null)
                 + '<td class="aj-num">' + refCell + '</td>'
                 + '</tr>'
-                + '<tr class="aj-refs" id="aj-refs-' + index + '" hidden><td colspan="9">'
+                + '<tr class="aj-refs" id="aj-refs-' + index + '" hidden><td colspan="10">'
                 + renderRefs(row) + '</td></tr>';
         }).join('');
 
-        tableBox.innerHTML = head + body + '</tbody></table>';
+        tableBox.innerHTML = cleanBar(cleanable.length) + head + body + '</tbody></table>'
+            + pager(visible.length, pageCount);
         if (csvLink) {
             csvLink.setAttribute('href',
                 api + '/space.csv?key=' + encodeURIComponent(spaceKey));
         }
+
+        bindCleanup();
+
+        Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-page'),
+            function (link) {
+                link.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    paging.page = Number(link.getAttribute('data-page')) || 1;
+                    renderDetail(lastPayload);
+                    // 다음 쪽 첫 줄이 화면 밖이면 눌러 놓고 아무 일도 안 일어난 것처럼 보인다.
+                    tableBox.scrollIntoView({block: 'start'});
+                });
+            });
 
         Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-expand'),
             function (link) {
@@ -467,6 +580,382 @@
                     target.hidden = !target.hidden;
                 });
             });
+    }
+
+
+
+
+    /**
+     * 방금 정리한 만큼 행의 수치를 깎는다.
+     *
+     * 스캔 결과를 서버에서 고쳐 쓰지 않는 것은 의도다 — 그러면 화면이 스캔한 적 없는
+     * 상태를 스캔 결과인 것처럼 보여준다. 대신 **이번 화면에서 우리가 한 일**만
+     * 클라이언트가 반영하고, 표가 옛것이라는 사실은 stale 배너가 따로 말한다.
+     */
+    function applyCleaned(row) {
+        var hit = cleaned[row.attachmentId];
+        if (!hit) {
+            return;
+        }
+        row.oldVersionCount = Math.max(0, (row.oldVersionCount || 0) - hit.versionsRemoved);
+        row.oldVersionBytes = Math.max(0, (row.oldVersionBytes || 0) - hit.bytesRemoved);
+        row.versionCount = Math.max(1, (row.versionCount || 1) - hit.versionsRemoved);
+    }
+
+    /**
+     * 지금 "최근 N개 유지"로 이 행에서 지워질 구버전 수.
+     *
+     * N 은 현재 버전을 포함한 총 개수라 구버전 중 남길 수는 N-1 이다.
+     * 0 이면 고를 이유가 없다 — 체크박스를 두지 않는 기준이 이것이다.
+     */
+    function removableAt(row, keep) {
+        return Math.max(0, (row.oldVersionCount || 0) - (Math.max(1, keep) - 1));
+    }
+
+    /* --------------------------------------------------- 구버전 정리 (되돌릴 수 없다) */
+
+    function pickedIds() {
+        return Object.keys(picked).filter(function (id) {
+            return picked[id];
+        }).map(Number);
+    }
+
+    /** 고른 것 중 지금 유지 개수로 실제 지울 구버전이 있는 행. */
+    function pickedRemovable() {
+        return lastVisible.filter(function (row) {
+            return picked[row.attachmentId] && removableAt(row, keepVersions) > 0;
+        });
+    }
+
+    /**
+     * 표 위의 조작 줄. 고른 개수 · 유지 개수 · 미리보기 단추.
+     *
+     * 실행 단추는 여기 없다. **미리보기를 거치지 않고 지울 수 있는 길을 두지 않는다** —
+     * 되돌릴 수 없는 작업이라 검토 단계가 강제되어야 한다.
+     */
+    function cleanBar(cleanableCount) {
+        if (!cleanableCount) {
+            return '';
+        }
+        var chosen = pickedRemovable();
+        var versions = chosen.reduce(function (sum, row) {
+            return sum + removableAt(row, keepVersions);
+        }, 0);
+        return '<div class="aj-cleanbar">'
+            + '<span class="aj-clean-count">'
+            + escape(format(text('aj.clean.picked'), number(chosen.length),
+                number(versions))) + '</span>'
+            + '<label>' + escape(text('aj.clean.keep'))
+            + ' <input type="number" id="aj-keep" min="1" max="999" value="'
+            + keepVersions + '"></label>'
+            + '<button type="button" id="aj-clean-preview" class="aj-button"'
+            + (versions ? '' : ' disabled') + '>'
+            + escape(text('aj.clean.preview')) + '</button>'
+            + '<span class="aj-clean-said"></span>'
+            + '<span class="aj-clean-note">' + escape(text('aj.clean.keepnote'))
+            + '</span></div>';
+    }
+
+    function bindCleanup() {
+        var all = document.getElementById('aj-pick-all');
+        if (all) {
+            all.addEventListener('change', function () {
+                // 필터에 걸린 전체다. 보고 있는 쪽만이 아니다.
+                lastVisible.forEach(function (row) {
+                    if (removableAt(row, keepVersions) > 0) {
+                        picked[row.attachmentId] = all.checked;
+                    }
+                });
+                renderDetail(lastPayload);
+            });
+        }
+        Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-pick-one'),
+            function (box) {
+                box.addEventListener('change', function () {
+                    picked[box.getAttribute('data-id')] = box.checked;
+                    refreshCleanBar();
+                });
+            });
+
+        var keep = document.getElementById('aj-keep');
+        if (keep) {
+            keep.addEventListener('input', function () {
+                keepVersions = Math.max(1, Number(keep.value) || 1);
+                /* 유지 개수가 바뀌면 지울 것이 있는 행도 바뀐다. 더 이상 지울 것이
+                   없어진 행의 선택은 버린다 — 남겨 두면 "고름 3개"인데 미리보기가
+                   비어 있는 상태가 된다. */
+                lastVisible.forEach(function (row) {
+                    if (removableAt(row, keepVersions) <= 0) {
+                        delete picked[row.attachmentId];
+                    }
+                });
+                renderDetail(lastPayload);
+                var again = document.getElementById('aj-keep');
+                if (again) {
+                    again.focus();
+                }
+            });
+        }
+        var preview = document.getElementById('aj-clean-preview');
+        if (preview) {
+            preview.addEventListener('click', function () {
+                askPreview();
+            });
+        }
+    }
+
+    /* 체크 하나 눌렀다고 표 전체를 다시 그리지 않는다 — 스크롤 위치가 튄다. */
+    function refreshCleanBar() {
+        var chosen = pickedRemovable();
+        var versions = chosen.reduce(function (sum, row) {
+            return sum + removableAt(row, keepVersions);
+        }, 0);
+        var label = tableBox.querySelector('.aj-clean-count');
+        var button = document.getElementById('aj-clean-preview');
+        if (label) {
+            label.textContent = format(text('aj.clean.picked'),
+                number(chosen.length), number(versions));
+        }
+        if (button) {
+            // 지울 버전이 0 이면 눌러도 빈 미리보기가 온다. 누를 수 없게 둔다.
+            button.disabled = !versions;
+        }
+    }
+
+    function askPreview() {
+        var ids = pickedRemovable().map(function (row) {
+            return row.attachmentId;
+        });
+        if (!ids.length) {
+            return;
+        }
+        nearButton('');
+        banner('', '');
+        request('POST', '/cleanup/preview', function (status, payload) {
+            if (status !== 200 || !payload) {
+                return;
+            }
+            showPreview(payload);
+        }, JSON.stringify({ids: ids, keep: keepVersions}));
+    }
+
+    /**
+     * 미리보기. 여기서만 실행 단추가 나온다.
+     *
+     * 수치는 **서버가 지금 읽은 것**이지 스캔 결과가 아니다. 그래서 표에 적힌 구버전
+     * 수와 다를 수 있고, 다르면 그게 맞는 쪽이다.
+     */
+    function showPreview(preview) {
+        var rows = (preview.items || []).filter(function (item) {
+            return item.removeCount > 0 && !item.problem;
+        });
+        var problems = (preview.items || []).filter(function (item) {
+            return item.problem;
+        });
+
+        if (!rows.length) {
+            /* 표는 저장된 스캔이고 미리보기는 지금 읽은 것이라 어긋날 수 있다.
+               그때 위쪽 배너로만 말하면 표를 보고 있는 사람에게는 "눌렀는데 아무 일도
+               없다"가 된다. 단추 옆에 낸다. */
+            nearButton(text('aj.clean.nothing'));
+            banner('warn', text('aj.clean.nothing'));
+            return;
+        }
+
+        var list = rows.map(function (item) {
+            return '<tr><td>' + escape(item.fileName) + '</td>'
+                + '<td class="aj-num">' + escape(number(item.currentVersion)) + '</td>'
+                + '<td class="aj-num">' + escape(number(item.removeCount)) + '</td>'
+                + '<td class="aj-num">' + escape(bytes(item.removeBytes)) + '</td>'
+                + '<td class="aj-meta">' + escape(item.removeVersions) + '</td></tr>';
+        }).join('');
+
+        var warn = problems.length
+            ? '<p class="aj-clean-warn">'
+                + escape(format(text('aj.clean.problems'), number(problems.length)))
+                + '</p>'
+            : '';
+
+        modal(
+            text('aj.clean.confirmtitle'),
+            '<p class="aj-clean-lead">'
+                + escape(format(text('aj.clean.summary'),
+                    number(preview.fileCount), number(preview.versionCount),
+                    bytes(preview.bytes), number(preview.keep)))
+                + '</p>'
+            + '<p class="aj-clean-danger">' + escape(text('aj.clean.irreversible')) + '</p>'
+            + warn
+            + '<div class="aj-clean-list"><table class="aj-table"><thead><tr>'
+            + '<th>' + escape(text('aj.col.filename')) + '</th>'
+            + '<th class="aj-num">' + escape(text('aj.clean.current')) + '</th>'
+            + '<th class="aj-num">' + escape(text('aj.clean.removing')) + '</th>'
+            + '<th class="aj-num">' + escape(text('aj.clean.reclaim')) + '</th>'
+            + '<th>' + escape(text('aj.clean.versions')) + '</th>'
+            + '</tr></thead><tbody>' + list + '</tbody></table></div>',
+            text('aj.clean.execute'),
+            function () {
+                /* 화면이 본 것을 그대로 되돌려 보낸다. 서버가 실행 직전에 다시 계산해
+                   이것과 견주고, 다르면 그 첨부만 건너뛴다. */
+                runCleanup(rows.map(function (item) {
+                    return item.attachmentId;
+                }), rows.map(function (item) {
+                    return item.attachmentId + ':' + item.removeVersions;
+                }));
+            });
+    }
+
+    function runCleanup(ids, expect) {
+        closeModal();
+        banner('info', text('aj.clean.running'));
+        request('POST', '/cleanup', function (status, payload) {
+            if (status === 409) {
+                banner('warn', text('aj.error.busy'));
+                return;
+            }
+            if (status !== 200 || !payload) {
+                return;
+            }
+            picked = {};
+            (payload.done || []).forEach(function (item) {
+                var seen = cleaned[item.attachmentId]
+                    || {versionsRemoved: 0, bytesRemoved: 0};
+                cleaned[item.attachmentId] = {
+                    versionsRemoved: seen.versionsRemoved + item.versionsRemoved,
+                    bytesRemoved: seen.bytesRemoved + item.bytesRemoved
+                };
+            });
+            var message = format(text('aj.clean.done'),
+                number(payload.filesDone), number(payload.versionsRemoved),
+                bytes(payload.bytesRemoved));
+            if (payload.filesSkipped || payload.filesFailed) {
+                message += ' ' + format(text('aj.clean.partial'),
+                    number(payload.filesSkipped), number(payload.filesFailed));
+            }
+            banner('warn', message);
+            load();
+        }, JSON.stringify({ids: ids, keep: keepVersions, expect: expect}));
+    }
+
+    /** 정리 줄 안에 내는 알림. 표를 보고 있는 사람 눈에 닿는 유일한 자리다. */
+    function nearButton(message) {
+        var slot = tableBox.querySelector('.aj-clean-said');
+        if (slot) {
+            slot.textContent = message;
+        }
+    }
+
+    /* 확인 창. 되돌릴 수 없는 작업은 화면 한복판에서 물어야 한다. */
+    function modal(title, html, confirmLabel, onConfirm) {
+        closeModal();
+        var host = document.createElement('div');
+        host.className = 'aj-modal';
+        host.id = 'aj-modal';
+        host.innerHTML = '<div class="aj-modal-box" role="dialog" aria-modal="true">'
+            + '<h2>' + escape(title) + '</h2>'
+            + '<div class="aj-modal-body">' + html + '</div>'
+            + '<div class="aj-modal-foot">'
+            + '<button type="button" class="aj-button aj-danger" id="aj-modal-ok">'
+            + escape(confirmLabel) + '</button>'
+            + '<button type="button" class="aj-button" id="aj-modal-cancel">'
+            + escape(text('aj.clean.cancel')) + '</button>'
+            + '</div></div>';
+        document.body.appendChild(host);
+        document.getElementById('aj-modal-ok').addEventListener('click', onConfirm);
+        document.getElementById('aj-modal-cancel').addEventListener('click', closeModal);
+        host.addEventListener('click', function (event) {
+            if (event.target === host) {
+                closeModal();
+            }
+        });
+        document.getElementById('aj-modal-cancel').focus();
+    }
+
+    function closeModal() {
+        var host = document.getElementById('aj-modal');
+        if (host && host.parentNode) {
+            host.parentNode.removeChild(host);
+        }
+    }
+
+    /**
+     * 쪽 이동. 한 장에 다 그리면 실제 인스턴스에서 수천 줄이 된다.
+     *
+     * <pre>53 found · ‹ 1 2 3 … 6 ›</pre>
+     *
+     * 쪽이 하나뿐이면 번호도 화살표도 내지 않는다 — 누를 데가 없는 것을 그려 두면
+     * 화면만 어수선해진다. 대신 총 개수는 언제나 적는다.
+     */
+    function pager(total, pageCount) {
+        var found = '<span class="aj-page-found">'
+            + escape(format(text('aj.page.found'), number(total))) + '</span>';
+        if (pageCount <= 1) {
+            return '<div class="aj-pager">' + found + '</div>';
+        }
+
+        function arrow(page, glyph, titleKey, off) {
+            if (off) {
+                return '<span class="aj-page-off" aria-hidden="true">' + glyph + '</span>';
+            }
+            return '<a href="#" class="aj-page aj-page-arrow" data-page="' + page
+                + '" title="' + escape(text(titleKey)) + '"'
+                + ' aria-label="' + escape(text(titleKey)) + '">' + glyph + '</a>';
+        }
+
+        var links = pageNumbers(paging.page, pageCount).map(function (page) {
+            if (page === 0) {
+                return '<span class="aj-page-gap">…</span>';
+            }
+            if (page === paging.page) {
+                return '<span class="aj-page-on" aria-current="page">'
+                    + escape(number(page)) + '</span>';
+            }
+            return '<a href="#" class="aj-page" data-page="' + page + '">'
+                + escape(number(page)) + '</a>';
+        }).join('');
+
+        return '<div class="aj-pager">' + found
+            + '<span class="aj-page-sep">·</span>'
+            + '<span class="aj-page-nav">'
+            + arrow(paging.page - 1, '\u2039', 'aj.page.prev', paging.page === 1)
+            + links
+            + arrow(paging.page + 1, '\u203A', 'aj.page.next', paging.page === pageCount)
+            + '</span></div>';
+    }
+
+    /**
+     * 낼 쪽 번호. 0 은 생략 표시(…)다.
+     *
+     * 현재 쪽 주위 세 칸에 첫 쪽과 끝 쪽을 더한다. 가장자리에서는 창을 반대쪽으로
+     * 늘려 항상 세 칸이 되게 한다 — 1쪽에서 "1 2" 만 나오면 눌러 볼 데가 없어 보인다.
+     */
+    function pageNumbers(current, count) {
+        var low = Math.max(1, current - 1);
+        var high = Math.min(count, current + 1);
+        while (high - low < 2 && (low > 1 || high < count)) {
+            if (low > 1) {
+                low--;
+            } else {
+                high++;
+            }
+        }
+
+        var pages = [];
+        if (low > 1) {
+            pages.push(1);
+            if (low > 2) {
+                pages.push(0);
+            }
+        }
+        for (var page = low; page <= high; page++) {
+            pages.push(page);
+        }
+        if (high < count) {
+            if (high < count - 1) {
+                pages.push(0);
+            }
+            pages.push(count);
+        }
+        return pages;
     }
 
     /* 라벨의 근거. 펼쳐 볼 수 없는 라벨은 신뢰받지 못한다. */
@@ -528,12 +1017,13 @@
             }
         });
 
-        function select(id, labelKey, options) {
+        function select(id, labelKey, options, noAll) {
             return '<label>' + escape(text(labelKey)) + ' <select id="' + id + '">'
-                + '<option value="">' + escape(text('aj.filter.all')) + '</option>'
+                + (noAll ? '' : '<option value="">' + escape(text('aj.filter.all')) + '</option>')
                 + options.map(function (option) {
-                    return '<option value="' + escape(option[0]) + '">'
-                        + escape(option[1]) + '</option>';
+                    var on = id === 'aj-f-size-page' && Number(option[0]) === paging.size;
+                    return '<option value="' + escape(option[0]) + '"'
+                        + (on ? ' selected' : '') + '>' + escape(option[1]) + '</option>';
                 }).join('') + '</select></label>';
         }
 
@@ -551,7 +1041,9 @@
             + select('aj-f-size', 'aj.filter.minsize',
                 [['1048576', '1 MB'], ['10485760', '10 MB'], ['104857600', '100 MB']])
             + '<label>' + escape(text('aj.filter.name'))
-            + ' <input type="search" id="aj-f-query" value=""></label>';
+            + ' <input type="search" id="aj-f-query" value=""></label>'
+            + select('aj-f-size-page', 'aj.filter.perpage',
+                PAGE_SIZES.map(function (size) { return [String(size), number(size)]; }), true);
         filterBox.setAttribute('data-built', 'yes');
 
         bind('aj-f-label', 'change', function (value) { filters.label = value; });
@@ -559,7 +1051,12 @@
         bind('aj-f-ext', 'change', function (value) { filters.extension = value; });
         bind('aj-f-size', 'change', function (value) { filters.minBytes = Number(value) || 0; });
         bind('aj-f-query', 'input', function (value) { filters.query = value; });
+        bind('aj-f-size-page', 'change', function (value) {
+            paging.size = Number(value) || 50;
+        });
     }
+
+    var PAGE_SIZES = [10, 20, 50, 100];
 
     function bind(id, event, apply) {
         var element = document.getElementById(id);
@@ -568,6 +1065,8 @@
         }
         element.addEventListener(event, function () {
             apply(element.value);
+            // 무엇을 바꾸든 1쪽으로 돌아간다. 3쪽을 보다 조건을 좁히면 빈 화면이 된다.
+            paging.page = 1;
             if (lastPayload) {
                 renderDetail(lastPayload);
             }
@@ -656,7 +1155,8 @@
             + '</select></td>'
             + '<td class="aj-meta">' + escape(text('aj.set.dupmode.hint')) + '</td></tr>'
             + '</tbody></table>'
-            + '<div class="aj-bar"><button type="button" class="aui-button aui-button-primary"'
+            + '<div class="aj-bar aj-set-actions">'
+            + '<button type="button" class="aui-button aui-button-primary"'
             + ' id="aj-save">' + escape(text('aj.action.save')) + '</button>'
             + '<span class="aj-asof" id="aj-saved"></span></div>'
             + '<p class="aj-foot">' + escape(text('aj.set.note')) + '</p>';
@@ -729,6 +1229,13 @@
                 banner('error', text('aj.error.network'));
                 return;
             }
+            /* 새 스캔이 저장되면 표가 다시 진실을 말한다. 우리 기억은 버린다. */
+            var runId = payload.shown ? payload.shown.finishedAt : null;
+            if (cleanedForRun !== null && cleanedForRun !== runId) {
+                cleaned = {};
+            }
+            cleanedForRun = runId;
+
             lastPayload = payload;
             renderBanners(payload);
             renderAsOf(payload.shown);

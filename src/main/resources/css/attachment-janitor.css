@@ -7,10 +7,13 @@
     max-width: 1100px;
 }
 
+/* 화면 머리의 한두 문장. `.aj-foot` 과 같은 이유로 폭을 따로 좁히지 않는다 — 70ch 는
+   표(1100px)보다 좁아서 한 줄이면 될 문장을 접는다. 읽기 좋은 줄 길이 규칙은 여러
+   문단을 이어 읽는 글에 필요한 것이고, 여기는 그런 글이 아니다.
+   설명서 본문(.aj-help-body)은 진짜 읽는 글이라 900px 를 그대로 둔다. */
 .aj-lede {
     color: #6B778C;
     margin: 0 0 16px;
-    max-width: 70ch;
 }
 
 .aj-bar {
@@ -160,11 +163,35 @@
     transition: width 0.3s ease;
 }
 
+/* 본문 단계는 총계를 미리 알 수 없다(페이지 수도 이력 깊이도 스페이스마다 다르다).
+   그때 0% 짜리 막대를 두면 "안 돌고 있다"로 읽히고, 100% 로 채우면 "다 됐다"로 읽힌다.
+   모르는 것은 모르는 모양으로 보여준다 — 흐르는 줄무늬. */
+.aj-progress-unknown > span {
+    animation: aj-progress-slide 1.1s linear infinite;
+    background: repeating-linear-gradient(45deg,
+        #0052CC 0 10px, #4C9AFF 10px 20px);
+    background-size: 28px 100%;
+    width: 100%;
+}
+
+@keyframes aj-progress-slide {
+    from { background-position: 0 0; }
+    to   { background-position: 28px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .aj-progress-unknown > span {
+        animation: none;
+    }
+}
+
+/* 표 아래 주석. **폭을 따로 좁히지 않는다** — 80ch 로 묶어 두면 표(1100px)보다 좁아서
+   한 줄이면 될 문장이 두 줄로 접힌다. 읽기 좋은 줄 길이는 산문(.aj-lede)에나 필요하고
+   표 밑의 짧은 주석에는 표와 같은 폭이 맞다. */
 .aj-foot {
     color: #6B778C;
     font-size: 12px;
     margin-top: 20px;
-    max-width: 80ch;
 }
 
 /* ---------------------------------------------------------------- 머리·탭·언어 */
@@ -323,6 +350,12 @@
     width: 120px;
 }
 
+/* 저장 단추가 표 마지막 줄의 구분선에 붙어 있었다. 단추는 표의 일부가 아니라 표에
+   대한 조치라서, 붙어 있으면 마지막 행처럼 읽힌다. */
+.aj-set-actions {
+    margin-top: 18px;
+}
+
 /* ----------------------------------------------------------------- 설명서 */
 
 .aj-help-layout {
@@ -419,4 +452,237 @@
         position: static;
     }
     .aj-help-toc ul { column-count: 2; column-gap: 24px; }
+}
+
+/* ---------------------------------------------------------------- 쪽 이동 */
+
+/* 53 found · ‹ 1 2 3 … 6 › */
+.aj-pager {
+    align-items: center;
+    border-top: 1px solid #DFE1E6;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.aj-page-found,
+.aj-page-sep {
+    color: #6B778C;
+    font-size: 13px;
+}
+
+.aj-page-nav {
+    align-items: center;
+    display: inline-flex;
+    gap: 10px;
+}
+
+.aj-page-nav a {
+    color: #0052CC;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.aj-page-nav a:hover {
+    text-decoration: underline;
+}
+
+/* 현재 쪽은 링크가 아니다. 누를 수 없다는 것이 굵기로 보여야 한다. */
+.aj-page-on {
+    color: #172B4D;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* 갈 수 없는 화살표는 지우지 않고 흐리게 둔다 — 사라지면 번호 위치가 흔들린다. */
+.aj-page-off {
+    color: #C1C7D0;
+    font-size: 15px;
+}
+
+.aj-page-arrow {
+    font-size: 15px;
+    line-height: 1;
+}
+
+.aj-page-gap {
+    color: #A5ADBA;
+    font-size: 13px;
+}
+
+/* ------------------------------------------- 구버전 정리 (되돌릴 수 없는 유일한 기능) */
+
+.aj-cleanbar {
+    align-items: center;
+    background: #F4F5F7;
+    border: 1px solid #DFE1E6;
+    border-radius: 3px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+}
+
+.aj-clean-count {
+    font-weight: 600;
+}
+
+.aj-cleanbar input[type="number"] {
+    width: 60px;
+}
+
+.aj-clean-note {
+    color: #6B778C;
+    font-size: 12px;
+}
+
+th.aj-pick,
+td.aj-pick {
+    padding-right: 0;
+    width: 28px;
+}
+
+/* 확인 창. 되돌릴 수 없는 작업은 화면 한복판에서 물어야 한다 — 표 옆의 작은 글씨로
+   물으면 관리자는 읽지 않고 누른다. */
+.aj-modal {
+    align-items: center;
+    background: rgba(9, 30, 66, 0.54);
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    left: 0;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 9000;
+}
+
+.aj-modal-box {
+    background: #fff;
+    border-radius: 3px;
+    box-shadow: 0 8px 24px rgba(9, 30, 66, 0.3);
+    display: flex;
+    flex-direction: column;
+    max-height: 82vh;
+    max-width: 760px;
+    padding: 20px 24px;
+    width: 92%;
+}
+
+.aj-modal-box h2 {
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0 0 12px;
+}
+
+.aj-modal-body {
+    overflow-y: auto;
+}
+
+.aj-clean-lead {
+    font-size: 15px;
+    margin: 0 0 10px;
+}
+
+/* 되돌릴 수 없다는 사실은 눈에 띄어야 한다. 하지만 겁주는 색으로 도배하지는 않는다 —
+   매번 빨간 화면이면 곧 아무도 안 읽는다. */
+.aj-clean-danger {
+    background: #FFFAE6;
+    border-left: 3px solid #FFAB00;
+    color: #172B4D;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+}
+
+.aj-clean-warn {
+    color: #BF2600;
+    margin: 0 0 10px;
+}
+
+.aj-clean-list {
+    border: 1px solid #DFE1E6;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+.aj-modal-foot {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 16px;
+}
+
+.aj-button.aj-danger {
+    background: #DE350B;
+    border-color: #DE350B;
+    color: #fff;
+}
+
+.aj-button.aj-danger:hover {
+    background: #BF2600;
+}
+
+/* ---------------------------------------------------------------- 막대 범례 */
+
+/* 색에 이름을 붙여 두는 자리. 색만 있고 범례가 없으면 정보가 아니라 장식이다. */
+.aj-legend {
+    align-items: center;
+    color: #6B778C;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 6px;
+    margin: 10px 0 0;
+}
+
+.aj-swatch {
+    border-radius: 2px;
+    display: inline-block;
+    height: 8px;
+    width: 16px;
+}
+
+.aj-swatch:not(:first-child) {
+    margin-left: 12px;
+}
+
+.aj-swatch-latest {
+    background: #0052CC;
+}
+
+.aj-swatch-old {
+    background: #FFAB00;
+}
+
+.aj-swatch-rest {
+    background: #DFE1E6;
+}
+
+/* 뜻이 이름만으로 통하지 않는 칸에 붙는 표시. 설명은 title 로 뜬다. */
+.aj-tip {
+    border: 1px solid #C1C7D0;
+    border-radius: 50%;
+    color: #6B778C;
+    cursor: help;
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 400;
+    height: 12px;
+    line-height: 12px;
+    margin-left: 4px;
+    text-align: center;
+    width: 12px;
+}
+
+/* 정리 줄 안의 알림. 위쪽 배너는 표를 보고 있으면 화면 밖이라 여기가 필요하다. */
+.aj-clean-said {
+    color: #BF2600;
+    font-size: 12px;
+}
+
+.aj-clean-said:empty {
+    display: none;
 }

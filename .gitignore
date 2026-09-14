@@ -1,6 +1,7 @@
 target/
 amps-standalone-*/
 .idea/
+.vscode/
 *.iml
 .classpath
 .project

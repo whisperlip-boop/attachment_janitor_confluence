@@ -49,6 +49,24 @@ public class HelpPage
         paragraph(out, text, "aj.help.what.body");
         paragraph(out, text, "aj.help.what.readonly");
 
+        // 색은 범례 없이 두면 정보가 아니라 장식이다. 화면에도 범례를 두고 여기에도 적는다.
+        section(out, text, "aj.help.bar");
+        paragraph(out, text, "aj.help.bar.body");
+        paragraph(out, text, "aj.help.bar.colours");
+        out.print("<dl class=\"aj-help-dl\">");
+        for (String[] pair : new String[][] {
+                {"aj.bar.latest", "aj.help.bar.latest"},
+                {"aj.bar.old", "aj.help.bar.old"},
+                {"aj.bar.rest", "aj.help.bar.rest"}})
+        {
+            out.print("<dt>");
+            out.print(escape(text, pair[0]));
+            out.print("</dt><dd>");
+            out.print(escape(text, pair[1]));
+            out.print("</dd>");
+        }
+        out.print("</dl>");
+
         section(out, text, "aj.help.labels");
         paragraph(out, text, "aj.help.labels.intro");
         out.print("<table class=\"aui aj-help-table\"><thead><tr><th class=\"aj-w1\">");
@@ -121,13 +139,53 @@ public class HelpPage
         section(out, text, "aj.help.duplicates");
         paragraph(out, text, "aj.help.duplicates.body");
         paragraph(out, text, "aj.help.duplicates.mode");
+        // 칸 이름만으로 뜻이 안 통하는 칸들. 화면에서는 머리의 ? 로도 뜨지만, 툴팁은
+        // 인쇄하거나 링크로 공유하면 사라진다. 설명서에는 글로 남는다.
+        paragraph(out, text, "aj.help.duplicates.columns");
+        out.print("<dl class=\"aj-help-dl\">");
+        for (String[] pair : new String[][] {
+                {"aj.col.dupfiles", "aj.col.dupfiles.tip"},
+                {"aj.col.unit", "aj.col.unit.tip"},
+                {"aj.col.reclaim", "aj.col.reclaim.tip"},
+                {"aj.col.certainty", "aj.col.certainty.tip"}})
+        {
+            out.print("<dt>");
+            out.print(escape(text, pair[0]));
+            out.print("</dt><dd>");
+            out.print(escape(text, pair[1]));
+            out.print("</dd>");
+        }
+        out.print("</dl>");
+
+        // 이 앱에서 유일하게 되돌릴 수 없는 기능이다. 설명서에서 가장 길게 적는다 —
+        // 짧게 적으면 관리자가 무엇을 잃는지 모르고 누른다.
+        section(out, text, "aj.help.cleanup");
+        paragraph(out, text, "aj.help.cleanup.why");
+        paragraph(out, text, "aj.help.cleanup.safe");
+        paragraph(out, text, "aj.help.cleanup.keep");
+        paragraph(out, text, "aj.help.cleanup.flow");
+        out.print("<ul>");
+        for (String key : new String[] {"aj.help.cleanup.rule.oldonly",
+                                        "aj.help.cleanup.rule.nolabel",
+                                        "aj.help.cleanup.rule.preview",
+                                        "aj.help.cleanup.rule.recheck",
+                                        "aj.help.cleanup.rule.log",
+                                        "aj.help.cleanup.rule.websudo"})
+        {
+            out.print("<li>");
+            out.print(escape(text, key));
+            out.print("</li>");
+        }
+        out.print("</ul>");
+        paragraph(out, text, "aj.help.cleanup.caveat");
 
         section(out, text, "aj.help.limits");
         out.print("<ul>");
         for (String key : new String[] {"aj.help.limit.notdelete", "aj.help.limit.sizes",
                                         "aj.help.limit.deleted", "aj.help.limit.history",
                                         "aj.help.limit.templates", "aj.help.limit.external",
-                                        "aj.help.limit.snapshot"})
+                                        "aj.help.limit.snapshot",
+                                        "aj.help.limit.oneatatime"})
         {
             out.print("<li>");
             out.print(escape(text, key));

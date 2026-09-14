@@ -7,7 +7,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>co.bskim.confluence</groupId>
     <artifactId>attachment-janitor</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
 
     <organization>
         <name>BSKIM Company</name>
@@ -15,7 +15,7 @@
     </organization>
 
     <name>Attachment Janitor</name>
-    <description>Read-only attachment reporting for Confluence administrators. Ranks spaces by attachment storage, exposes the old versions hidden behind a single filename, finds duplicate uploads, and works out which attachments no page body references any more - with the referencing pages shown as evidence. Korean and English. Nothing is ever deleted; the app only reports what is there.</description>
+    <description>Attachment storage reporting for Confluence administrators, with one clean-up action. Ranks spaces by attachment storage, exposes the old versions hidden behind a single filename, finds duplicate uploads, and works out which attachments no page body references any more - with the referencing pages shown as evidence. Korean and English. The only thing it can remove is superseded versions of an attachment, always keeping the current one and however many recent versions you choose, after a preview you have to confirm. It never deletes an attachment, a page, or anything you have not reviewed.</description>
     <packaging>atlassian-plugin</packaging>
 
     <dependencies>
@@ -81,8 +81,13 @@
                 <version>${amps.version}</version>
                 <extensions>true</extensions>
                 <configuration>
-                    <productVersion>${confluence.version}</productVersion>
-                    <productDataVersion>${confluence.data.version}</productDataVersion>
+                    <!--
+                        실행 버전은 컴파일 버전과 별도 축이다. 둘을 한 속성으로 묶으면
+                        -Pconf7123 이 컴파일까지 7.12.3 으로 올려 "7.12.3 으로 컴파일한
+                        jar 을 7.12.3 에서 돌리는" 무의미한 시험이 된다.
+                    -->
+                    <productVersion>${confluence.runtime.version}</productVersion>
+                    <productDataVersion>${confluence.runtime.data.version}</productDataVersion>
                     <enableQuickReload>true</enableQuickReload>
 
                     <instructions>
@@ -120,6 +125,9 @@
         -->
         <confluence.version>7.8.1</confluence.version>
         <confluence.data.version>7.8.1</confluence.data.version>
+        <!-- atlas-run 이 띄우는 버전. conf7123 프로필이 이것만 올린다. -->
+        <confluence.runtime.version>${confluence.version}</confluence.runtime.version>
+        <confluence.runtime.data.version>${confluence.data.version}</confluence.runtime.data.version>
         <amps.version>8.1.2</amps.version>
         <!-- The version Confluence 7.8.1 bundles (activeobjects-plugin-3.2.4.jar). -->
         <ao.version>3.2.4</ao.version>
@@ -136,5 +144,50 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
+
+    <profiles>
+        <!--
+          운영 타깃(7.12.3)에서 실제로 돌려 보는 프로필. 검증 전용이고 배포 산출물에는
+          영향이 없다.
+
+              sleep infinity | atlas-run -Pconf7123
+              → http://localhost:1990/confluence   admin / admin
+                AMPS 가 개발용 timebomb 라이선스를 자동으로 넣는다.
+
+          **컴파일 버전은 올리지 않는다.** `confluence.version` 은 7.8.1 그대로고
+          실행 버전만 7.12.3 이 된다. 그래야 "낮은 쪽으로 컴파일한 jar 이 높은 쪽에서
+          도는가"를 검증한다. 확인:
+
+              atlas-mvn -Pconf7123 dependency:list | grep 'confluence:confluence:'
+              → 7.8.1 이 나와야 한다
+
+          `-Dconfluence.version=7.12.3` 으로 하는 컴파일 검사(실측 19번)와는 다른
+          레버다. 그쪽은 컴파일 API, 이쪽은 런타임. 합치지 말 것.
+
+          주의: atlas-run 은 H2 를 쓴다. PostgreSQL 방언 검증은 docker 7.8.1 인스턴스가
+          담당한다. 두 환경이 서로 다른 축을 덮으므로 어느 하나로 대체되지 않는다.
+        -->
+        <profile>
+            <id>conf7123</id>
+            <properties>
+                <confluence.runtime.version>7.12.3</confluence.runtime.version>
+                <confluence.runtime.data.version>7.12.3</confluence.runtime.data.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.atlassian.maven.plugins</groupId>
+                        <artifactId>confluence-maven-plugin</artifactId>
+                        <version>${amps.version}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <!-- 7.12 는 AMPS 기본 힙으로는 기동 중에 죽는다. -->
+                            <jvmArgs>-Xms1g -Xmx2g -XX:MaxMetaspaceSize=512m</jvmArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

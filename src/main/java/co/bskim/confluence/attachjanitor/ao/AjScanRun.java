@@ -122,4 +122,15 @@ public interface AjScanRun extends Entity
     String getStartedBy();
 
     void setStartedBy(String startedBy);
+
+    /**
+     * 이 실행이 저장된 뒤에 구버전 정리가 돌았다.
+     *
+     * <p>정리는 구버전을 실제로 지우므로 이 실행의 구버전 수치와 [구버전 다량] 배지는
+     * 그 순간부터 틀린다. 다시 스캔하기 전까지 화면이 "표가 최신이 아니다"를 내야 한다 —
+     * 관리자가 이미 지운 것을 다시 지우려 들게 두지 않는다.
+     */
+    boolean isSupersededByAction();
+
+    void setSupersededByAction(boolean superseded);
 }

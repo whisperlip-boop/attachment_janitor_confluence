@@ -18,6 +18,9 @@
         <entity>co.bskim.confluence.attachjanitor.ao.AjAttachment</entity>
         <entity>co.bskim.confluence.attachjanitor.ao.AjRefHit</entity>
         <entity>co.bskim.confluence.attachjanitor.ao.AjDupGroup</entity>
+        <!-- 구버전 정리 기록. 등록을 빠뜨리면 컴파일도 기동도 되고 실행 순간에만
+             테이블 없음으로 죽는다(실측 13번). -->
+        <entity>co.bskim.confluence.attachjanitor.ao.AjActionLog</entity>
     </ao>
 
     <rest key="attachment-janitor-rest" path="/attachment-janitor" version="1.0">
@@ -31,8 +34,9 @@
         <url-pattern>/attachment-janitor/*</url-pattern>
     </servlet>
 
-    <!-- Confluence's own entries in this section stop well below 200, so this lands at the
-         bottom of "Configuration" rather than in the middle of the built-in items. -->
+    <!-- Confluence 자체 항목들 뒤에 붙는다. 다만 "맨 아래"는 아니다 — Office Connector
+         와 WebDAV Configuration 은 weight 가 더 높아 이 항목 뒤에 온다(7.8.1 · 7.12.3
+         양쪽에서 상대 위치가 같은 것을 확인했다, docs/01). 쫓아 올릴 이유는 없다. -->
     <web-item key="attachment-janitor-admin-link" name="Attachment Janitor Admin Link"
               section="system.admin/configuration" weight="200">
         <label key="aj.admin.section.label"/>

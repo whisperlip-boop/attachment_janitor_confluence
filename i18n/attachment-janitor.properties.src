@@ -10,7 +10,7 @@ aj.admin.title = Attachment Janitor
 aj.admin.lede = Where attachment storage actually goes: per-space totals, how much of each \
 space is superseded versions of files that look like one file on screen, and which \
 attachments no page body references any more.
-aj.admin.limits = This app never deletes anything.
+aj.admin.limits = The only thing this app removes is superseded versions, and only after a preview you confirm. It never removes an attachment or a page.
 aj.admin.helplink = How to read this screen
 
 aj.detail.lede = Every attachment in this space, with what would break if you removed it and \
@@ -103,7 +103,9 @@ pictures. They are listed so the space rows add up to the instance total.
 aj.error.forbidden = Your administrator session has expired, or you are not a Confluence \
 administrator. Reload the page and log in again.
 aj.error.network = Could not reach Confluence. The numbers shown may be out of date.
-aj.error.busy = A scan is already running.
+aj.error.websudo = Your administrator confirmation has expired. Reload this screen and confirm your password again before removing anything.
+aj.error.busy = Another job is already running \
+  — a scan, or a cleanup of older versions. On a cluster it may be running on a different node.
 
 # --- labels ------------------------------------------------------------------
 # One set per Label enum constant. Adding a constant adds a row to the help page too.
@@ -154,7 +156,11 @@ aj.ref.kind.other = Another page
 aj.ref.kind.comment = A comment
 aj.ref.kind.spacedesc = Space description
 aj.ref.kind.history = An older version
+aj.ref.kind.spacelogo = The space logo
 
+aj.page.found = {0} found
+aj.page.prev = Previous
+aj.page.next = Next
 aj.refs.none = No reference was found.
 aj.refs.more = and {0} more (not stored).
 
@@ -165,6 +171,7 @@ aj.filter.label = Status
 aj.filter.badge = Flag
 aj.filter.extension = Type
 aj.filter.minsize = At least
+aj.filter.perpage = Per page
 aj.filter.name = Name contains
 
 # --- duplicates --------------------------------------------------------------
@@ -193,8 +200,8 @@ aj.set.keepruns = Scans to keep
 aj.set.keepruns.hint = Per-space totals are kept for this many scans so you can see a trend. \
 Per-attachment rows are only ever kept for the newest finished scan.
 aj.set.scanhistory = Examine past page versions
-aj.set.scanhistory.hint = Needed to tell "used only by an older version" from "not used at \
-all". Off by default: it adds a query per page version and can make a scan several times \
+aj.set.scanhistory.hint = Needed to separate "History only" from "Unreferenced". \
+Off by default: it adds a query per page version and can make a scan several times \
 longer.
 aj.set.dupmode = Duplicate detection
 aj.set.dupmode.quick = Size and first 64 KB (fast)
@@ -214,7 +221,9 @@ aj.help.what.body = Confluence does not tell an administrator how much disk each
 attachments take, and it does not show old versions at all: re-upload a file thirty times and \
 the page still shows one file while thirty sit on disk. This app measures both, and works out \
 which attachments no page body references any more.
-aj.help.what.readonly = It never deletes, moves or tidies anything. That is deliberate, not \
+aj.help.what.readonly = It removes nothing except superseded versions of an attachment, \
+and only through a preview you confirm. It never removes an attachment, never moves one, and \
+never touches a page. That narrowness is deliberate, not \
 an unfinished feature: the point is to give you the evidence before you decide, and a report \
 you might accidentally destroy something with is a report you would hesitate to run.
 
@@ -262,6 +271,11 @@ aj.help.ref.desc.spacedesc = A space description. These are written in wiki mark
 than storage format, so they are read separately.
 aj.help.ref.desc.history = A past version of a page body. Only collected when past versions \
 are examined in Settings.
+aj.help.ref.desc.spacelogo = The logo configured for the space. This one is not found in any \
+body - a logo is an attachment on the space itself and nothing links to it. Without it the \
+report would call every space logo unreferenced, when removing one visibly breaks the space \
+header. Other files attached to the space that are not the logo stay unreferenced, because \
+they really are unused.
 
 aj.help.duplicates = Duplicates
 aj.help.duplicates.body = Finding duplicates in two stages keeps it cheap. Files are first \
@@ -274,8 +288,10 @@ Switch to a full hash in Settings when you want certainty; it reads every candid
 to end.
 
 aj.help.limits = What this report cannot tell you
-aj.help.limit.notdelete = It never changes anything. Removing files, cleaning up old versions \
-and moving attachments are all done in Confluence itself.
+aj.help.duplicates.columns = The columns on that screen mean this:
+aj.help.limit.notdelete = The only change it can make is removing superseded versions of an \
+attachment, through the preview described above. Removing an attachment itself, or moving \
+one, is still done in Confluence.
 aj.help.limit.sizes = Sizes are the attachment files as Confluence records them. Search \
 indexes, thumbnails and extracted text are not included, so the total is smaller than the \
 home directory.
@@ -292,3 +308,125 @@ page body it failed to read all produce the same answer. Treat it as the first p
 not as permission to delete.
 aj.help.limit.snapshot = Everything on these screens comes from the last scan, and the time \
 it was taken is shown next to the buttons. Nothing is measured when you open the page.
+aj.help.limit.oneatatime = Only one job runs at a time: a scan and a cleanup exclude each \
+other, and on Data Center that holds across the whole cluster. A request that arrives while \
+another job is running is refused rather than queued. Progress is visible, and Cancel works, \
+only on the node running the job.
+
+# --- 구버전 정리 (되돌릴 수 없는 유일한 기능) ---
+aj.clean.pickall = Select every file that has older versions
+aj.clean.picked = {0} selected, {1} older versions would go
+aj.clean.keep = Keep last
+aj.clean.keepnote = Counting the current version. Older versions beyond that are removed - \
+the file itself is never removed, whatever its status says, so no page can break.
+aj.clean.preview = Preview removal
+aj.clean.confirmtitle = Remove older versions
+aj.clean.summary = {0} files, {1} older versions, {2} reclaimed. The most recent {3} versions \
+of each file are kept, including the current one.
+aj.clean.irreversible = This cannot be undone. Confluence has no trash for attachment \
+versions - the rows and the files are removed immediately. Pages are not affected: the \
+current version stays and page bodies reference attachments by name, never by version.
+aj.clean.problems = {0} of the selected files could not be read and are not included.
+aj.clean.current = Current
+aj.clean.removing = Removing
+aj.clean.reclaim = Reclaimed
+aj.clean.versions = Version numbers
+aj.clean.execute = Remove them
+aj.clean.cancel = Cancel
+aj.clean.running = Removing older versions...
+aj.clean.done = Removed {1} older versions from {0} files, reclaiming {2}. Run a scan to \
+refresh the numbers.
+aj.clean.partial = {0} files were skipped because they changed since the preview, and {1} \
+failed.
+aj.clean.nothing = Nothing to remove for the files you selected.
+
+# --- 설명서: 구버전 정리 ---
+aj.help.cleanup = Removing older versions
+aj.help.cleanup.why = This is the one thing the app can remove, and the reason it exists is \
+simple: a list of files you cannot act on does not free any storage. On the test \
+instance 1,048 superseded versions sat behind 12 filenames - nothing on any page pointed at \
+them, and no screen in Confluence shows you where they are.
+aj.help.cleanup.safe = Removing an older version cannot break a page, and that is a property \
+of the storage format rather than a hope. A page body refers to an attachment by file name and \
+container; there is no field in which it could name a version. So the current version always \
+answers, whatever the status of the file says. This is why the status - In use, Used \
+elsewhere, Unreferenced - has no bearing on whether removing older versions is safe, and why \
+the app does not hide the checkbox based on it.
+aj.help.cleanup.keep = "Keep last N" counts the current version. A file with sixteen versions \
+and N of 3 keeps the current one plus the two most recent older ones, and loses thirteen. N \
+does not change what breaks - nothing does - it decides how far back you can still roll the \
+file. The default of 3 reclaims almost everything while leaving two steps of undo.
+aj.help.cleanup.flow = The flow is fixed and there is no way around it:
+aj.help.cleanup.rule.oldonly = A checkbox appears only on files that the current \
+"keep last" value would actually take versions from. Files with nothing to remove get \
+no control at all, so a button is never enabled on something that would do nothing.
+aj.help.cleanup.rule.nolabel = Status is never used to hide the checkbox. Hiding it by status \
+would teach a rule that does not exist and would be wrong the first time someone relied on it.
+aj.help.cleanup.rule.preview = Nothing is removed without a preview. The preview is read live \
+at that moment, not taken from the last scan, so it can disagree with the table - and when it \
+does, the preview is the one that is right.
+aj.help.cleanup.rule.recheck = At the moment of removal each file is read once more and \
+compared with what the preview showed you. If someone uploaded or removed a version in \
+between, that one file is skipped and reported; the rest go ahead.
+aj.help.cleanup.rule.log = Every file is recorded - what was removed, by whom, when, and the \
+version numbers. Skipped and failed files are recorded too, because a silent omission is the \
+worst outcome.
+aj.help.cleanup.rule.websudo = Removal asks for your password again even though reading does \
+not. A few seconds is worth it in front of something irreversible.
+aj.help.cleanup.caveat = Two things to know before you use it. It cannot be undone: Confluence \
+has no trash for attachment versions, so the database rows and the files on disk go \
+immediately. And if anyone has linked directly to a download URL with a version pinned in it, \
+that link breaks - the app does not follow URLs, so it cannot warn you about those.
+
+# --- 스페이스 막대 (색에 이름을 붙인다) ---
+aj.bar.latest = Current versions
+aj.bar.old = Older versions
+aj.bar.rest = Remaining space up to the largest space
+aj.bar.title = Current versions {0}, older versions {1}. The full width is {2}, the largest \
+space here.
+
+# --- 설명서: 스페이스 막대 ---
+aj.help.bar = Reading the bar next to each space
+aj.help.bar.body = Each space name has a thin bar under it. It is drawn to scale against the \
+largest space in the table, so the widest bar is the space using the most attachment storage \
+and every other bar is a fraction of it. The bar is not a percentage of your disk.
+aj.help.bar.colours = The bar carries three colours, and the split is the point of it:
+aj.help.bar.latest = Blue is what the current versions of the files occupy. This is the part \
+you would still be storing if every file had only ever been uploaded once.
+aj.help.bar.old = Amber is what superseded versions occupy. Confluence shows none of this \
+anywhere: the page lists one file, and the older copies sit on disk behind it. A space that is \
+mostly amber is a space where the storage is going into history rather than content, and that \
+is exactly what the clean-up action can reclaim.
+aj.help.bar.rest = Grey is simply the rest of the bar - the distance up to the largest space. \
+It means nothing about the space itself.
+
+# --- 칸 이름만으로는 뜻이 안 통하는 칸의 설명 (표 머리에 ? 로 뜬다) ---
+aj.col.dupfiles.tip = How many files in this group hold the same content.
+aj.col.unit.tip = The size of one of them. They are all the same size - that is how the \
+group was formed.
+aj.col.reclaim.tip = What you would get back by keeping one copy and removing the rest. It \
+is the size of one file times the number of extra copies. This app does not remove them; the \
+number is here so you can judge whether it is worth doing in Confluence.
+aj.col.certainty.tip = Whether the contents were compared in full. "Confirmed" means every \
+byte matched. "Candidate" means only the size and the first 64 KB matched, which is the \
+default because reading every file costs disk I/O. Switch to full comparison in Settings.
+aj.col.risky.tip = Attachments referenced from somewhere other than the page they are \
+attached to. Removing one of these breaks a page that is not the obvious one, so open the \
+evidence before touching them.
+aj.col.versions.tip = The number the current version carries. Deleted version numbers are \
+never reissued, so after a cleanup this can be larger than the old-version count plus one.
+aj.col.oldversions.tip = Two numbers: the storage held by superseded versions, then how \
+many of those versions are still on disk. They are the copies hidden behind a single file \
+name, and Confluence shows neither number anywhere.
+aj.col.orphans.tip = Attachments that no page body references, as far as this app can see. \
+The cell shows their total size, then how many of them there are. Read the limits before \
+treating this as "safe to delete".
+
+# --- 체크박스가 무엇에 대한 것인지 (상태와 무관하다는 것이 핵심) ---
+aj.col.pick.tip = Select files whose older versions you want removed. This never removes \
+the file itself, so the Status column has no bearing on it: the current version stays and \
+page bodies reference attachments by name, never by version. Files that the current \
+"keep last" value would take nothing from have no checkbox, because there is nothing \
+to remove.
+aj.clean.picktip = Select this file: {0} older versions would be removed, the current version \
+stays.

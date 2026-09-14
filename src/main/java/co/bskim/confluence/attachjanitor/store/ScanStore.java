@@ -1,6 +1,7 @@
 package co.bskim.confluence.attachjanitor.store;
 
 import co.bskim.confluence.attachjanitor.analyze.DuplicateFinder;
+import co.bskim.confluence.attachjanitor.ao.AjActionLog;
 import co.bskim.confluence.attachjanitor.ao.AjAttachment;
 import co.bskim.confluence.attachjanitor.ao.AjDupGroup;
 import co.bskim.confluence.attachjanitor.ao.AjRefHit;
@@ -49,6 +50,9 @@ public class ScanStore
      * Oracle 은 {@code IN} 목록이 1,000 개까지다 — 낮은 쪽에 맞춘다.
      */
     private static final int IN_CHUNK = 900;
+
+    /** 정리 기록 화면이 한 번에 보는 행 수. */
+    private static final int ACTION_LOG_PAGE = 200;
 
     public static final String RUNNING = "RUNNING";
     public static final String DONE = "DONE";
@@ -116,6 +120,30 @@ public class ScanStore
      *
      * @return 첨부 행 ID → 근거 목록. 근거가 없는 첨부는 키 자체가 없다
      */
+    /**
+     * 구버전 정리가 돈 뒤에 부른다. 저장된 최신 완료 실행에 "이제 옛것"이라고 표시한다.
+     *
+     * <p>지운 것을 반영해 수치를 고쳐 쓰지 않는다 — 그러면 화면이 스캔한 적 없는 상태를
+     * 스캔 결과인 것처럼 보여주게 된다. 틀렸다고 말하고 다시 스캔하게 하는 편이 정직하다.
+     */
+    public void markStale()
+    {
+        AjScanRun run = latestCompleteRun();
+        if (run == null || run.isSupersededByAction())
+        {
+            return;
+        }
+        run.setSupersededByAction(true);
+        run.save();
+    }
+
+    /** 최근 정리 기록. 최신이 먼저다. */
+    public List<AjActionLog> recentActions()
+    {
+        return Arrays.asList(ao.find(AjActionLog.class,
+                Query.select().order("ID DESC").limit(ACTION_LOG_PAGE)));
+    }
+
     public Map<Integer, List<AjRefHit>> refsOf(List<AjAttachment> rows)
     {
         Map<Integer, List<AjRefHit>> byRow = new HashMap<Integer, List<AjRefHit>>();
@@ -172,15 +200,52 @@ public class ScanStore
                         .order("RECLAIMABLE_BYTES DESC")));
     }
 
-    public List<AjAttachment> attachmentsWithHash(AjScanRun run, String hash)
+    /**
+     * 여러 해시의 구성원을 <b>한 번에</b> 읽는다.
+     *
+     * <p>그룹마다 따로 물으면 중복 화면 한 번에 조회가 그룹 수만큼 나간다. 근거 조회와
+     * 같은 이유로 {@code IN} 으로 묶는다({@link #refsOf}).
+     *
+     * @return 해시 → 구성원. 해시 하나에 대한 목록은 스페이스키 순이다
+     */
+    public Map<String, List<AjAttachment>> attachmentsByHash(AjScanRun run, List<String> hashes)
     {
-        if (run == null)
+        Map<String, List<AjAttachment>> byHash = new HashMap<String, List<AjAttachment>>();
+        if (run == null || hashes.isEmpty())
         {
-            return new ArrayList<AjAttachment>();
+            return byHash;
         }
-        return Arrays.asList(ao.find(AjAttachment.class,
-                Query.select().where("RUN_ID = ? AND CONTENT_HASH = ?", run.getID(), hash)
-                        .order("SPACE_KEY ASC")));
+        for (int from = 0; from < hashes.size(); from += IN_CHUNK)
+        {
+            List<String> chunk = hashes.subList(from, Math.min(from + IN_CHUNK, hashes.size()));
+            for (AjAttachment row : ao.find(AjAttachment.class,
+                    Query.select().where("RUN_ID = ? AND CONTENT_HASH IN ("
+                                    + placeholders(chunk.size()) + ")",
+                            merge(Integer.valueOf(run.getID()), chunk))
+                            .order("SPACE_KEY ASC")))
+            {
+                List<AjAttachment> members = byHash.get(row.getContentHash());
+                if (members == null)
+                {
+                    members = new ArrayList<AjAttachment>();
+                    byHash.put(row.getContentHash(), members);
+                }
+                members.add(row);
+            }
+        }
+        return byHash;
+    }
+
+    /** {@code where} 인자는 실행 번호가 먼저고 그다음이 {@code IN} 목록이다. */
+    private static Object[] merge(Object first, List<?> rest)
+    {
+        Object[] args = new Object[rest.size() + 1];
+        args[0] = first;
+        for (int index = 0; index < rest.size(); index++)
+        {
+            args[index + 1] = rest.get(index);
+        }
+        return args;
     }
 
     /**

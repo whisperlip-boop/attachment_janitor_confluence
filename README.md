@@ -1,15 +1,20 @@
 # Attachment Janitor
 
-Read-only attachment storage reporting for Confluence Server / Data Center 7.x.
+Attachment storage reporting for Confluence Server / Data Center 7.x, with one
+clean-up action.
 
 Confluence does not tell an administrator how much disk each space's attachments occupy, and
 it does not show old versions at all: re-upload `spec.xlsx` thirty times and the page still
 shows one file, while thirty files sit on disk. This app measures both and puts them in one
 table.
 
-**It never deletes anything.** v1 is a report. That is a deliberate limit, not an unfinished
-feature — the point is to give an administrator the numbers they need before deciding, and a
-tool that might delete something is a tool an administrator hesitates to install.
+**The only thing it can remove is superseded versions of an attachment** — never an
+attachment, never a page, never anything you have not seen in a preview first. That narrowness
+is deliberate. The point is to give an administrator the numbers they need before deciding, and
+a tool that might destroy something unexpectedly is a tool an administrator hesitates to
+install. Removing older versions is the one action that cannot break a page, and the storage
+format is why: a page body names an attachment by file name, and has no field in which it
+could name a version.
 
 ## What it shows
 
@@ -23,6 +28,9 @@ how much is unreferenced, how many attachments are used from outside their own p
 many are duplicated.
 
 **Space detail** — every attachment in one space with a status, flags, and the evidence.
+A space's own logo is an attachment too, and nothing in any page body refers to it; the report
+recognises it as the space logo rather than calling it unreferenced. Other files attached
+alongside it are still reported as unreferenced, because they genuinely are.
 Filter by status, flag, file type, size or name.
 
 *Status* answers one question — what breaks if you remove this file:
@@ -63,12 +71,19 @@ matching a list of macros, so macros this app has never heard of are still count
 are found in two stages: group by exact size and extension first, then hash only what survives,
 so most files are never read from disk at all.
 
-Superseded versions cost one extra query per attachment that has any, and none for attachments
-uploaded once. That query is the expensive part: measured on its own, the attachment phase of a
-2,000-attachment test instance took 1.2 seconds when 17 files had older versions and 16 to 20
-seconds when 1,048 did. A full scan of that same instance — attachments, every page body, the
-match and the duplicate stages — takes 20 to 23 seconds, and 27 seconds with page history and
-full hashing turned on. An instance where most files have been re-uploaded is the slow case —
+Reading page bodies is where the time goes, and the cost is simply the number of bodies: about
+45 to 60 milliseconds each, whether it is a current page or an older version. On a test instance
+of 2,546 attachments across 553 current bodies a full scan takes 46 seconds, of which the body
+pass is most of it. **Turning on history scanning multiplied the bodies by ten — 5,131 of them —
+and the scan took 338 seconds**, 93% of that in the body pass. History is not expensive in
+itself; it just means ten times as much to read. That is why it is off by default, and why
+attachments are then labelled "Unreferenced (history not checked)" rather than plain
+unreferenced.
+
+Memory is not the constraint. Across that hundredfold increase in bodies, peak heap during the
+scan grew by 65 MB (328 MB to 393 MB above the pre-scan baseline) and nothing was retained after
+the scan. Repeat runs varied by tens of seconds, so read the figures as a range, not a benchmark.
+Instances far larger than 2,546 attachments have not been measured. An instance where most files have been re-uploaded is the slow case —
 which is also the instance this report is most useful on, so run the first scan outside
 business hours.
 
@@ -76,16 +91,22 @@ business hours.
 
 - **Search indexes, thumbnails and extracted text.** The figures are the attachment files
   themselves as Confluence records them, so they are smaller than the home directory.
+- **Page templates.** A template has no container of its own, so Confluence stores an image
+  in a template as a URL rather than as an attachment reference - even when the attachment is
+  fully identified. There is nothing there for this report to find, and it does not follow
+  URLs, so templates are neither scanned nor counted.
 - **Attachments Confluence has already marked deleted** — a trashed page, or an attachment
   deleted on its own. Their files stay on disk until Confluence cleans them up, but the API
   this report reads does not return them, so they cannot be counted honestly and are left out
-  rather than shown as zero.
+  rather than shown as zero. On the test instance that was 8 attachments totalling 3.9 KB, and
+  7 of the 8 sat under pages that were themselves in the trash - which no reasonably cheap API
+  will return.
 - **Anything outside attachments**: the database itself, backups, Synchrony.
 - **Past page versions**, unless you switch that on in Settings. With it off, an attachment
   used only by an older version of a page is reported as unreferenced and labelled
   "history not checked".
-- **Page templates and blueprints.** An attachment used only by a template reads as
-  unreferenced.
+- **Page templates and blueprints.** A template cannot hold an attachment reference at all —
+  see the limits above — so an attachment used only by a template reads as unreferenced.
 
 "Unreferenced" means no reference was found where this app looks. A body it could not parse,
 an external system linking straight to the download URL, or a macro storing a filename in a
@@ -97,6 +118,13 @@ and unresolvable references as their own numbers rather than folding them into t
 - Confluence Server / Data Center 7.x (built against 7.8.1, deployment target 7.12.3)
 - Java 8
 - Confluence administrator rights to open the screen
+
+On Data Center, a scan and a cleanup are serialised across the whole cluster by a single
+cluster lock, so only one of them runs at a time no matter which node the request lands on;
+a request that arrives while another job holds the lock is refused immediately rather than
+queued. Two caveats, stated plainly: this has been exercised on a single node only, never
+against a real multi-node cluster, and both progress and Cancel are node-local — a browser
+served by another node sees nothing while the job runs, and cannot stop it.
 
 ## Building
 
@@ -132,11 +160,44 @@ All endpoints require a Confluence administrator; anonymous callers get 401, oth
 Statuses and flags travel as codes, never as sentences: one stored result is rendered in
 whatever language the reader chose.
 
+## Removing older versions
+
+Confluence can delete one attachment version at a time, buried in a page's attachment history
+behind a confirmation screen. It cannot tell you where the volume is, and it cannot do a
+hundred of them. That gap is what this action fills.
+
+On a space's file list, files that have older versions get a checkbox. Choose how many recent
+versions to keep — the count includes the current one, and the default is 3 — then preview.
+The preview is read live at that moment rather than taken from the last scan, and it lists
+every file, how many versions go, and how much is reclaimed. Only then is there a button.
+
+What the app guarantees:
+
+- **The current version is never touched.** Two independent checks enforce it, because
+  Confluence itself does not: its own API will happily delete the current version and silently
+  revert the file's contents.
+- **Status is irrelevant and is not used to hide anything.** In use, Used elsewhere,
+  Unreferenced — removing older versions is equally safe for all of them.
+- **Every file is re-read at the moment of removal** and compared with the preview. A file
+  that changed in between is skipped and reported; the rest proceed.
+- **Everything is logged** — file, versions, bytes, who, when — including skips and failures.
+- **Removal asks for your password again**, even though reading does not.
+
+What it cannot do:
+
+- **Undo.** Confluence has no trash for attachment versions. Rows and files go immediately.
+- **Warn about version-pinned links.** If something links straight to a download URL with
+  `?version=3` in it, that link breaks and this app cannot see it, because it does not follow
+  URLs.
+
+Removing an attachment, or moving one, is still done in Confluence.
+
 ## Roadmap
 
-Everything here is read-only. Acting on what it finds — removing files, cleaning up old
-versions, moving attachments — is deliberately not part of this version and would need its own
-design: a confirmation step, a dry run, and an audit log.
+Deleting unreferenced attachments is deliberately **not** here. The Unreferenced label is
+currently biased towards over-reporting — page templates are not scanned, past versions are off
+by default, and attachments already marked deleted are not counted — and acting destructively
+on a label the app itself describes as biased would be the wrong order to do things in.
 
 ## Licence
 

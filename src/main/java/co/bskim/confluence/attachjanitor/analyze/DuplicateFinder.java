@@ -37,11 +37,43 @@ public final class DuplicateFinder
     /** 약식 해시가 읽는 파일 앞부분의 크기. */
     private static final int SAMPLE = 64 * 1024;
 
+    /** 진행률을 이만큼마다 알린다. */
+    private static final int NOTIFY_EVERY = 25;
+
     /** 파일 바이트를 읽는 통로. 스캔이 Confluence 를 넘겨주고 테스트는 가짜를 넘긴다. */
     public interface DataSource
     {
         InputStream open(long attachmentId) throws IOException;
     }
+
+    /**
+     * 해시 도중 바깥과 주고받는 통로.
+     *
+     * <p>이게 없으면 중복 단계가 <b>끝날 때까지 0%</b> 로 보이고 취소도 먹지 않는다.
+     * 해시 대상이 많은 인스턴스에서 그건 "멈춘 것"과 구분되지 않는다.
+     */
+    public interface Watcher
+    {
+        /** true 면 즉시 그만둔다. */
+        boolean cancelled();
+
+        void progress(int done, int total);
+    }
+
+    /** 아무것도 하지 않는 감시자. 테스트와 옛 호출부가 쓴다. */
+    public static final Watcher SILENT = new Watcher()
+    {
+        @Override
+        public boolean cancelled()
+        {
+            return false;
+        }
+
+        @Override
+        public void progress(int done, int total)
+        {
+        }
+    };
 
     public static final class Group
     {
@@ -72,6 +104,8 @@ public final class DuplicateFinder
         public boolean budgetHit;
         /** 읽다 실패한 첨부 수. 파일이 없거나 권한이 없을 때. */
         public int unreadable;
+        /** 도중에 취소됐다. 그룹 목록은 비어 있다 — 반쯤 검사한 결과를 내지 않는다. */
+        public boolean cancelled;
 
         public long reclaimableBytes()
         {
@@ -89,6 +123,12 @@ public final class DuplicateFinder
     }
 
     public static Result find(List<AttachmentFacts> all, Settings settings, DataSource data)
+    {
+        return find(all, settings, data, SILENT);
+    }
+
+    public static Result find(List<AttachmentFacts> all, Settings settings, DataSource data,
+                              Watcher watcher)
     {
         Result result = new Result();
         boolean exact = settings.duplicateMode == Settings.DuplicateMode.FULL;
@@ -112,6 +152,19 @@ public final class DuplicateFinder
             bucket.add(facts);
         }
 
+        // 해시할 대상 수를 먼저 센다. 진행률의 분모는 전체 첨부가 아니라 이것이다 —
+        // 1단계에서 대부분이 떨어지므로 전체를 분모로 쓰면 100% 에 영영 못 간다.
+        int toHash = 0;
+        for (List<AttachmentFacts> bucket : candidates.values())
+        {
+            if (bucket.size() >= 2)
+            {
+                toHash += bucket.size();
+            }
+        }
+        watcher.progress(0, toHash);
+        int hashed = 0;
+
         // 2단계: 후보에 속한 것만 해시한다.
         Map<String, List<AttachmentFacts>> byHash = new HashMap<String, List<AttachmentFacts>>();
         for (Map.Entry<String, List<AttachmentFacts>> entry : candidates.entrySet())
@@ -123,6 +176,18 @@ public final class DuplicateFinder
             }
             for (AttachmentFacts facts : bucket)
             {
+                if (watcher.cancelled())
+                {
+                    // 지금까지 붙인 해시로 그룹을 만들지 않는다. 반쯤 검사한 결과를
+                    // 중복 목록이라고 내놓는 것이 검사하지 않은 것보다 나쁘다.
+                    result.cancelled = true;
+                    return result;
+                }
+                hashed++;
+                if (hashed % NOTIFY_EVERY == 0)
+                {
+                    watcher.progress(hashed, toHash);
+                }
                 long want = exact ? facts.latestBytes : Math.min(facts.latestBytes, SAMPLE);
                 if (settings.duplicateByteBudget > 0
                         && result.hashedBytes + want > settings.duplicateByteBudget)
@@ -165,6 +230,7 @@ public final class DuplicateFinder
             result.groups.add(new Group(entry.getKey(), members.get(0).latestBytes,
                     members, exact));
         }
+        watcher.progress(toHash, toHash);
         return result;
     }
 
