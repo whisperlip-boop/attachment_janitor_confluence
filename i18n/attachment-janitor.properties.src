@@ -1,0 +1,294 @@
+# Attachment Janitor - English strings (default bundle).
+# Edit this file, then run tools/make-i18n.py. Do not edit src/main/resources/*.properties.
+#
+# Everything under "aj." except "aj.help." is handed to the browser as one bundle, so a new
+# string needs no wiring anywhere else. Keys are deliberately not listed by hand in code.
+
+aj.admin.section.label = Attachment storage report
+
+aj.admin.title = Attachment Janitor
+aj.admin.lede = Where attachment storage actually goes: per-space totals, how much of each \
+space is superseded versions of files that look like one file on screen, and which \
+attachments no page body references any more.
+aj.admin.limits = This app never deletes anything.
+aj.admin.helplink = How to read this screen
+
+aj.detail.lede = Every attachment in this space, with what would break if you removed it and \
+the evidence behind that judgement.
+aj.duplicates.lede = Files whose contents are the same. "Reclaimable" is what you would get \
+back by keeping one copy.
+aj.settings.lede = Thresholds for the flags, and how far a scan goes. Changes take effect on \
+the next scan.
+
+aj.nav.spaces = Spaces
+aj.nav.duplicates = Duplicates
+aj.nav.settings = Settings
+aj.nav.help = Help
+
+aj.action.scan = Scan now
+aj.action.scanning = Scanning...
+aj.action.cancel = Cancel
+aj.action.csv = Export CSV
+aj.action.save = Save
+
+# --- columns -----------------------------------------------------------------
+
+aj.col.space = Space
+aj.col.files = Files
+aj.col.total = Total
+aj.col.latest = Current version
+aj.col.oldversions = Old versions
+aj.col.orphans = Unreferenced
+aj.col.risky = Used elsewhere
+aj.col.duplicates = Duplicates
+aj.col.nospace = (no space)
+aj.col.filename = File
+aj.col.container = Attached to
+aj.col.label = Status
+aj.col.badges = Flags
+aj.col.versions = Versions
+aj.col.modified = Last modified
+aj.col.refs = Used by
+aj.col.dupfiles = Copies
+aj.col.unit = Each
+aj.col.reclaim = Reclaimable
+aj.col.certainty = Certainty
+aj.col.members = Files
+
+# --- summary tiles -----------------------------------------------------------
+
+aj.summary.files = Attachments
+aj.summary.total = Total size
+aj.summary.oldversions = Old versions
+aj.summary.orphans = Unreferenced
+aj.summary.duplicates = Duplicates
+aj.summary.spacefiles = Shown / total
+
+# --- state and banners -------------------------------------------------------
+
+aj.state.never = No scan has run yet. Press "Scan now" to measure this instance.
+aj.state.noresults = No scan has finished yet, so there are no numbers to show.
+aj.state.nodetail = The per-attachment rows for this scan are no longer stored. Run a scan \
+to rebuild them.
+aj.state.loading = Loading...
+aj.state.empty = The scan found no attachments.
+aj.state.nomatch = No attachment matches these filters.
+aj.state.scanning = {0}: {1} processed.
+aj.state.cancelled = The last scan was cancelled, so it stored no numbers.
+aj.state.failed = The last scan failed and stored no numbers: {0}
+aj.state.stale = The table below is from the last scan that finished, not the one above.
+aj.state.skipped = {0} attachments could not be read and are not in these totals.
+aj.state.parsefail = {0} page bodies could not be read. References in them were not counted, \
+so an attachment may be shown as unreferenced when it is not.
+aj.state.unresolved = {0} references point at a page that could not be found - renamed or \
+deleted. Those references were not counted.
+aj.state.hashbudget = The scan reached its hashing limit, so some duplicate candidates were \
+not checked. Raise the limit in Settings if you need the full picture.
+aj.state.nohistory = Past versions of page bodies were not examined, so an attachment used \
+only by an older version is shown as "Unreferenced (history not checked)". Turn it on in \
+Settings.
+
+aj.phase.none = Working
+aj.phase.attachments = Reading attachments
+aj.phase.bodies = Reading page bodies
+aj.phase.match = Matching references
+aj.phase.duplicates = Comparing file contents
+aj.phase.save = Saving
+
+aj.asof = As of {0}
+
+aj.note.nospace = "(no space)" is attachments that belong to no space, such as profile \
+pictures. They are listed so the space rows add up to the instance total.
+
+aj.error.forbidden = Your administrator session has expired, or you are not a Confluence \
+administrator. Reload the page and log in again.
+aj.error.network = Could not reach Confluence. The numbers shown may be out of date.
+aj.error.busy = A scan is already running.
+
+# --- labels ------------------------------------------------------------------
+# One set per Label enum constant. Adding a constant adds a row to the help page too.
+
+aj.label.name.active = In use
+aj.label.cond.active = Referenced by the current body of the page it is attached to
+aj.label.act.active = Leave it alone. Removing it breaks the page it sits on.
+
+aj.label.name.risky = Used elsewhere
+aj.label.cond.risky = Referenced from somewhere other than the page it is attached to
+aj.label.act.risky = The most dangerous one to remove. Open "Used by" and check every page \
+listed - looking at the page the file is attached to will not show you what breaks.
+
+aj.label.name.history = History only
+aj.label.cond.history = Not in any current body, only in past versions of one
+aj.label.act.history = Removing it breaks nothing visible today, but opening an older \
+version of the page will show a broken image. Keep it if version history matters to you.
+
+aj.label.name.draft = On a draft
+aj.label.cond.draft = Attached to an unsaved draft page
+aj.label.act.draft = Wait. Draft bodies are not counted as references because nobody else \
+can see them, so this means "not judged yet", not "not used".
+
+aj.label.name.orphan = Unreferenced
+aj.label.cond.orphan = No reference found anywhere this app looked
+aj.label.act.orphan = The first thing to review. Read the limits below before treating it \
+as safe to delete.
+aj.label.name.orphan_unchecked = Unreferenced (history not checked)
+
+# --- badges ------------------------------------------------------------------
+
+aj.badge.name.oldversions = Many old versions
+aj.badge.desc.oldversions = The file was re-uploaded repeatedly. Only the newest shows on the \
+page; the rest are still on disk.
+aj.badge.name.duplicate = Duplicate
+aj.badge.name.duplicate_maybe = Possible duplicate
+aj.badge.desc.duplicate = The same content exists somewhere else in this instance.
+aj.badge.name.large = Large
+aj.badge.desc.large = The current version alone is over the size threshold.
+aj.badge.name.stale = Untouched
+aj.badge.desc.stale = Nothing has changed it for a long time. On its own this means nothing - \
+an old file can be in daily use.
+
+# --- reference kinds ---------------------------------------------------------
+
+aj.ref.kind.own = This page
+aj.ref.kind.other = Another page
+aj.ref.kind.comment = A comment
+aj.ref.kind.spacedesc = Space description
+aj.ref.kind.history = An older version
+
+aj.refs.none = No reference was found.
+aj.refs.more = and {0} more (not stored).
+
+# --- filters -----------------------------------------------------------------
+
+aj.filter.all = All
+aj.filter.label = Status
+aj.filter.badge = Flag
+aj.filter.extension = Type
+aj.filter.minsize = At least
+aj.filter.name = Name contains
+
+# --- duplicates --------------------------------------------------------------
+
+aj.dup.none = No duplicate files were found.
+aj.dup.exact = Confirmed
+aj.dup.maybe = Candidate
+aj.dup.note = "Candidate" means the scan compared file size and the first 64 KB, not the \
+whole file. Switch to a full hash in Settings if you need certainty.
+
+# --- settings ----------------------------------------------------------------
+
+aj.set.oldversioncount = Old versions: version count
+aj.set.oldversioncount.hint = Flag a file once it has this many versions.
+aj.set.oldversionbytes = Old versions: total size (MB)
+aj.set.oldversionbytes.hint = Or once its superseded versions add up to this.
+aj.set.largebytes = Large file (MB)
+aj.set.largebytes.hint = Applies to the current version on its own.
+aj.set.staledays = Untouched (days)
+aj.set.staledays.hint = How long without a change before a file counts as untouched.
+aj.set.hashbudget = Hashing limit per scan (MB)
+aj.set.hashbudget.hint = How much the scan may read from disk to compare file contents. \
+0 means no limit. Candidates beyond the limit are reported as unchecked, not as "not \
+duplicates".
+aj.set.keepruns = Scans to keep
+aj.set.keepruns.hint = Per-space totals are kept for this many scans so you can see a trend. \
+Per-attachment rows are only ever kept for the newest finished scan.
+aj.set.scanhistory = Examine past page versions
+aj.set.scanhistory.hint = Needed to tell "used only by an older version" from "not used at \
+all". Off by default: it adds a query per page version and can make a scan several times \
+longer.
+aj.set.dupmode = Duplicate detection
+aj.set.dupmode.quick = Size and first 64 KB (fast)
+aj.set.dupmode.full = Full SHA-1 (certain, reads every candidate)
+aj.set.dupmode.hint = The fast mode reports "candidates" and never claims certainty.
+aj.set.saved = Saved. The next scan will use these values.
+aj.set.note = Changing a threshold does not re-label anything on its own - the statuses and \
+flags you see were decided by the last scan.
+
+# --- help --------------------------------------------------------------------
+
+aj.help.title = Attachment Janitor - Help
+aj.help.contents = Contents
+
+aj.help.what = What this screen is
+aj.help.what.body = Confluence does not tell an administrator how much disk each space's \
+attachments take, and it does not show old versions at all: re-upload a file thirty times and \
+the page still shows one file while thirty sit on disk. This app measures both, and works out \
+which attachments no page body references any more.
+aj.help.what.readonly = It never deletes, moves or tidies anything. That is deliberate, not \
+an unfinished feature: the point is to give you the evidence before you decide, and a report \
+you might accidentally destroy something with is a report you would hesitate to run.
+
+aj.help.labels = Status: what breaks if you remove it
+aj.help.labels.intro = Every attachment gets exactly one status, and the axis is always the \
+same question - what breaks if this file goes away. How big it is, or whether it is \
+duplicated, is a separate axis and lives in the flags below.
+aj.help.col.label = Status
+aj.help.col.condition = When it is given
+aj.help.col.action = What to do
+aj.help.labels.confusion = "Unreferenced" and "History only" are the two that must not be \
+confused. Removing an unreferenced file changes nothing anyone can see. Removing a \
+history-only file changes nothing today either - and then someone opens last quarter's \
+version of the page and finds a broken image. The current page looks identical in both cases, \
+which is one of the reasons this app exists.
+aj.help.labels.notrash = There is no "in the trash" status. When a page goes to the trash \
+Confluence marks its attachments deleted, and the API this report reads does not return \
+deleted attachments at all - so the status could never appear. A status that can never appear \
+would read as "we checked and there are none", which would not be true.
+
+aj.help.badges = Flags: how much it costs you
+aj.help.badges.intro = Flags are independent of status and an attachment can carry several. \
+A file can be in use and have twenty old versions; it can be unreferenced and duplicated. The \
+thresholds below are your current settings, not fixed values.
+aj.help.col.badge = Flag
+aj.help.col.threshold = Current threshold
+aj.help.col.meaning = What it means
+aj.help.badges.settings = Change any of these in
+aj.help.threshold.oldversions = {0} versions, or {1} MB of superseded versions
+aj.help.threshold.large = {0} MB or more
+aj.help.threshold.stale = No change for {0} days
+aj.help.threshold.duplicate.quick = Size and first 64 KB match
+aj.help.threshold.duplicate.full = Full SHA-1 match
+
+aj.help.refs = Where a reference can come from
+aj.help.refs.intro = Open the "Used by" count on any row to see the actual pages. A status \
+whose evidence you cannot check is a status you should not act on, so every judgement here \
+can be expanded.
+aj.help.ref.desc.own = The current body of the page the file is attached to.
+aj.help.ref.desc.other = The current body of some other page or blog post, including pages in \
+other spaces. This is what makes an attachment risky to remove.
+aj.help.ref.desc.comment = A comment. A comment on the file's own page counts as ordinary \
+use; a comment on a different page counts as use from elsewhere.
+aj.help.ref.desc.spacedesc = A space description. These are written in wiki markup rather \
+than storage format, so they are read separately.
+aj.help.ref.desc.history = A past version of a page body. Only collected when past versions \
+are examined in Settings.
+
+aj.help.duplicates = Duplicates
+aj.help.duplicates.body = Finding duplicates in two stages keeps it cheap. Files are first \
+grouped by exact size and extension - files of different sizes cannot have the same content, \
+so this stage misses nothing and most files drop out of it alone. Only what survives is read \
+from disk and hashed.
+aj.help.duplicates.mode = In the default fast mode the scan reads a file's size and its first \
+64 KB, which is a strong hint but not a proof, so those groups are labelled "Candidate". \
+Switch to a full hash in Settings when you want certainty; it reads every candidate file end \
+to end.
+
+aj.help.limits = What this report cannot tell you
+aj.help.limit.notdelete = It never changes anything. Removing files, cleaning up old versions \
+and moving attachments are all done in Confluence itself.
+aj.help.limit.sizes = Sizes are the attachment files as Confluence records them. Search \
+indexes, thumbnails and extracted text are not included, so the total is smaller than the \
+home directory.
+aj.help.limit.deleted = Attachments Confluence has already marked deleted - a trashed page, \
+or an attachment deleted on its own - keep their files on disk but are not counted here, \
+because the API this report reads does not return them.
+aj.help.limit.history = With past versions switched off, an attachment used only by an older \
+version of a page is reported as unreferenced and marked "history not checked".
+aj.help.limit.templates = Page templates and blueprints are not read. An attachment used only \
+by a template will be reported as unreferenced.
+aj.help.limit.external = "Unreferenced" means no reference was found in the places this app \
+looks. A macro it cannot parse, an external system linking straight to the download URL, or a \
+page body it failed to read all produce the same answer. Treat it as the first place to look, \
+not as permission to delete.
+aj.help.limit.snapshot = Everything on these screens comes from the last scan, and the time \
+it was taken is shown next to the buttons. Nothing is measured when you open the page.

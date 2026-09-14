@@ -1,0 +1,282 @@
+# Attachment Janitor - 한국어. UTF-8 로 적고 tools/make-i18n.py 가 \uXXXX 로 바꾼다.
+# src/main/resources/*.properties 를 직접 고치지 말 것.
+
+aj.admin.section.label = 첨부파일 용량 리포트
+
+aj.admin.title = 첨부파일 정리 도우미
+aj.admin.lede = 첨부 용량이 실제로 어디에 쌓이는지 봅니다. 스페이스별 합계, 화면에는 파일 \
+하나로 보이지만 실제로는 남아 있는 구버전, 그리고 이제 어느 본문에서도 참조하지 않는 \
+첨부를 함께 보여줍니다.
+aj.admin.limits = 이 앱은 아무것도 삭제하지 않습니다.
+aj.admin.helplink = 이 화면을 읽는 방법
+
+aj.detail.lede = 이 스페이스의 첨부 전체입니다. 지웠을 때 무엇이 깨지는지와 그 판단의 \
+근거를 함께 봅니다.
+aj.duplicates.lede = 내용이 같은 파일들입니다. "회수 가능"은 한 벌만 남겼을 때 되찾는 \
+용량입니다.
+aj.settings.lede = 배지의 임계값과 스캔의 범위입니다. 바꾼 값은 다음 스캔부터 적용됩니다.
+
+aj.nav.spaces = 스페이스
+aj.nav.duplicates = 중복
+aj.nav.settings = 설정
+aj.nav.help = 설명서
+
+aj.action.scan = 지금 스캔
+aj.action.scanning = 스캔 중...
+aj.action.cancel = 취소
+aj.action.csv = CSV 내려받기
+aj.action.save = 저장
+
+# --- 표 머리 ------------------------------------------------------------------
+
+aj.col.space = 스페이스
+aj.col.files = 첨부 수
+aj.col.total = 총 용량
+aj.col.latest = 최신 버전
+aj.col.oldversions = 구버전
+aj.col.orphans = 참조 없음
+aj.col.risky = 밖에서 사용
+aj.col.duplicates = 중복
+aj.col.nospace = (스페이스 없음)
+aj.col.filename = 파일
+aj.col.container = 붙어 있는 곳
+aj.col.label = 상태
+aj.col.badges = 표시
+aj.col.versions = 버전 수
+aj.col.modified = 마지막 수정
+aj.col.refs = 쓰는 곳
+aj.col.dupfiles = 벌 수
+aj.col.unit = 한 벌
+aj.col.reclaim = 회수 가능
+aj.col.certainty = 확실성
+aj.col.members = 파일
+
+# --- 요약 ---------------------------------------------------------------------
+
+aj.summary.files = 첨부 수
+aj.summary.total = 총 용량
+aj.summary.oldversions = 구버전
+aj.summary.orphans = 참조 없음
+aj.summary.duplicates = 중복
+aj.summary.spacefiles = 표시 / 전체
+
+# --- 상태·배너 ----------------------------------------------------------------
+
+aj.state.never = 아직 스캔한 적이 없습니다. [지금 스캔] 을 눌러 이 인스턴스를 측정하십시오.
+aj.state.noresults = 아직 완료된 스캔이 없어 보여줄 수치가 없습니다.
+aj.state.nodetail = 이 스캔의 첨부별 상세는 더 이상 보관되어 있지 않습니다. 다시 스캔하면 \
+새로 만들어집니다.
+aj.state.loading = 불러오는 중...
+aj.state.empty = 스캔 결과 첨부가 없습니다.
+aj.state.nomatch = 이 조건에 맞는 첨부가 없습니다.
+aj.state.scanning = {0}: {1} 건 처리.
+aj.state.cancelled = 마지막 스캔이 취소되어 수치를 저장하지 않았습니다.
+aj.state.failed = 마지막 스캔이 실패해 수치를 저장하지 못했습니다: {0}
+aj.state.stale = 아래 표는 바로 위 스캔이 아니라 마지막으로 완료된 스캔의 결과입니다.
+aj.state.skipped = 첨부 {0} 개를 읽지 못했습니다. 이 합계에 들어 있지 않습니다.
+aj.state.parsefail = 본문 {0} 건을 읽지 못했습니다. 그 안의 참조가 집계되지 않았으므로, \
+실제로는 쓰이고 있는 첨부가 [참조 없음] 으로 보일 수 있습니다.
+aj.state.unresolved = 참조 {0} 건이 찾을 수 없는 페이지를 가리킵니다(이름이 바뀌었거나 \
+삭제됨). 이 참조는 집계되지 않았습니다.
+aj.state.hashbudget = 해시 상한에 걸려 일부 중복 후보를 검사하지 못했습니다. 전부 보려면 \
+설정에서 상한을 올리십시오.
+aj.state.nohistory = 과거 버전 본문을 검사하지 않았습니다. 과거 버전에서만 쓰이는 첨부는 \
+[참조 없음(이력 미검사)] 으로 표시됩니다. 설정에서 켤 수 있습니다.
+
+aj.phase.none = 작업 중
+aj.phase.attachments = 첨부 읽는 중
+aj.phase.bodies = 본문 읽는 중
+aj.phase.match = 참조 대조 중
+aj.phase.duplicates = 파일 내용 비교 중
+aj.phase.save = 저장 중
+
+aj.asof = {0} 기준
+
+aj.note.nospace = "(스페이스 없음)" 은 스페이스에 속하지 않는 첨부입니다(예: 프로필 사진). \
+스페이스 행의 합이 인스턴스 총계와 맞도록 함께 표시합니다.
+
+aj.error.forbidden = 관리자 세션이 만료되었거나 Confluence 관리자가 아닙니다. \
+페이지를 새로 고치고 다시 로그인하십시오.
+aj.error.network = Confluence 에 접근하지 못했습니다. 보이는 수치가 최신이 아닐 수 있습니다.
+aj.error.busy = 이미 스캔이 실행 중입니다.
+
+# --- 상태 라벨 ----------------------------------------------------------------
+
+aj.label.name.active = 사용 중
+aj.label.cond.active = 붙어 있는 페이지의 현재 본문에서 참조됨
+aj.label.act.active = 그대로 두십시오. 지우면 그 페이지가 깨집니다.
+
+aj.label.name.risky = 밖에서 사용
+aj.label.cond.risky = 붙어 있는 페이지가 아닌 곳에서 참조됨
+aj.label.act.risky = 지울 때 가장 위험한 쪽입니다. [쓰는 곳] 을 펼쳐 나열된 페이지를 \
+전부 확인하십시오. 첨부가 붙어 있는 페이지만 봐서는 무엇이 깨지는지 보이지 않습니다.
+
+aj.label.name.history = 이력에만 있음
+aj.label.cond.history = 현재 본문에는 없고 과거 버전 본문에만 있음
+aj.label.act.history = 지금 보이는 화면은 깨지지 않습니다. 다만 나중에 과거 버전을 열면 \
+깨진 이미지가 나옵니다. 버전 이력을 보존해야 한다면 두십시오.
+
+aj.label.name.draft = 초안에 붙음
+aj.label.cond.draft = 저장되지 않은 초안 페이지의 첨부
+aj.label.act.draft = 기다리십시오. 초안 본문은 남에게 보이지 않아 참조로 세지 않습니다. \
+"안 쓰인다"가 아니라 "아직 판단하지 않았다"는 뜻입니다.
+
+aj.label.name.orphan = 참조 없음
+aj.label.cond.orphan = 이 앱이 본 범위 안에서는 참조를 찾지 못함
+aj.label.act.orphan = 가장 먼저 살펴볼 대상입니다. "지워도 된다"로 읽기 전에 아래 한계를 \
+읽으십시오.
+aj.label.name.orphan_unchecked = 참조 없음(이력 미검사)
+
+# --- 배지 ---------------------------------------------------------------------
+
+aj.badge.name.oldversions = 구버전 다량
+aj.badge.desc.oldversions = 같은 이름으로 여러 번 올린 파일입니다. 페이지에는 최신 하나만 \
+보이고 나머지는 디스크에 그대로 있습니다.
+aj.badge.name.duplicate = 중복
+aj.badge.name.duplicate_maybe = 중복 후보
+aj.badge.desc.duplicate = 같은 내용이 이 인스턴스 안 다른 곳에도 있습니다.
+aj.badge.name.large = 대용량
+aj.badge.desc.large = 최신 버전 하나만으로 임계를 넘었습니다.
+aj.badge.name.stale = 오래됨
+aj.badge.desc.stale = 오랫동안 바뀌지 않았습니다. 이것만으로는 아무 뜻도 없습니다 — \
+오래된 파일이 매일 쓰일 수 있습니다.
+
+# --- 참조 종류 ----------------------------------------------------------------
+
+aj.ref.kind.own = 이 페이지
+aj.ref.kind.other = 다른 페이지
+aj.ref.kind.comment = 댓글
+aj.ref.kind.spacedesc = 스페이스 설명
+aj.ref.kind.history = 과거 버전
+
+aj.refs.none = 참조를 찾지 못했습니다.
+aj.refs.more = 그 밖에 {0} 건(저장하지 않음).
+
+# --- 필터 ---------------------------------------------------------------------
+
+aj.filter.all = 전체
+aj.filter.label = 상태
+aj.filter.badge = 표시
+aj.filter.extension = 형식
+aj.filter.minsize = 최소 크기
+aj.filter.name = 이름 포함
+
+# --- 중복 ---------------------------------------------------------------------
+
+aj.dup.none = 중복 파일을 찾지 못했습니다.
+aj.dup.exact = 확인됨
+aj.dup.maybe = 후보
+aj.dup.note = "후보"는 파일 전체가 아니라 크기와 앞 64KB 만 비교했다는 뜻입니다. 확실하게 \
+보려면 설정에서 전체 해시로 바꾸십시오.
+
+# --- 설정 ---------------------------------------------------------------------
+
+aj.set.oldversioncount = 구버전 다량: 버전 수
+aj.set.oldversioncount.hint = 버전이 이 수 이상이면 표시합니다.
+aj.set.oldversionbytes = 구버전 다량: 합계 용량(MB)
+aj.set.oldversionbytes.hint = 또는 구버전 합계가 이 용량 이상일 때.
+aj.set.largebytes = 대용량(MB)
+aj.set.largebytes.hint = 최신 버전 하나의 크기를 기준으로 합니다.
+aj.set.staledays = 오래됨(일)
+aj.set.staledays.hint = 이 기간 동안 바뀌지 않으면 오래된 것으로 봅니다.
+aj.set.hashbudget = 스캔당 해시 상한(MB)
+aj.set.hashbudget.hint = 파일 내용을 비교하려고 디스크에서 읽을 수 있는 총량입니다. 0 이면 \
+무제한입니다. 상한을 넘은 후보는 "중복 아님"이 아니라 "검사하지 못함"으로 보고합니다.
+aj.set.keepruns = 보관할 스캔 수
+aj.set.keepruns.hint = 스페이스별 합계는 추세를 볼 수 있게 이 수만큼 남깁니다. 첨부별 \
+상세는 언제나 마지막으로 완료된 스캔 한 벌만 남습니다.
+aj.set.scanhistory = 과거 버전 본문까지 검사
+aj.set.scanhistory.hint = "과거 버전에서만 쓰임"과 "아예 안 쓰임"을 가르려면 필요합니다. \
+버전 수만큼 조회가 늘어 스캔이 몇 배 길어질 수 있어 기본은 꺼짐입니다.
+aj.set.dupmode = 중복 판정 방식
+aj.set.dupmode.quick = 크기 + 앞 64KB (빠름)
+aj.set.dupmode.full = 전체 SHA-1 (확실함, 후보 파일을 전부 읽음)
+aj.set.dupmode.hint = 빠른 방식은 결과를 "후보"로만 표기하고 단정하지 않습니다.
+aj.set.saved = 저장했습니다. 다음 스캔부터 적용됩니다.
+aj.set.note = 임계값을 바꿔도 지금 보이는 라벨과 표시가 다시 계산되지는 않습니다. 그것들은 \
+마지막 스캔이 판정한 값입니다.
+
+# --- 설명서 -------------------------------------------------------------------
+
+aj.help.title = 첨부파일 정리 도우미 — 설명서
+aj.help.contents = 목차
+
+aj.help.what = 이 화면은 무엇인가
+aj.help.what.body = Confluence 는 스페이스별로 첨부가 디스크를 얼마나 쓰는지 알려주지 \
+않고, 구버전은 아예 보여주지 않습니다. 같은 파일을 서른 번 올리면 페이지에는 파일 하나로 \
+보이지만 디스크에는 서른 개가 있습니다. 이 앱은 그 둘을 재고, 어느 본문에서도 참조하지 \
+않는 첨부를 찾아냅니다.
+aj.help.what.readonly = 삭제·이동·정리는 일절 하지 않습니다. 미완성이라서가 아니라 \
+의도입니다. 이 앱의 목적은 결정하기 전에 근거를 주는 것이고, 잘못 누르면 무언가 사라질지도 \
+모르는 도구는 관리자가 실행 자체를 망설입니다.
+
+aj.help.labels = 상태 — 지우면 무엇이 깨지는가
+aj.help.labels.intro = 첨부 하나는 상태를 정확히 하나 받습니다. 축은 언제나 같은 질문 \
+하나입니다. 이 파일이 사라지면 무엇이 깨지는가. 얼마나 큰지, 중복인지는 다른 축이고 아래 \
+표시(배지)에 있습니다.
+aj.help.col.label = 상태
+aj.help.col.condition = 언제 붙는가
+aj.help.col.action = 무엇을 하면 되는가
+aj.help.labels.confusion = [참조 없음] 과 [이력에만 있음] 은 절대 섞으면 안 됩니다. \
+참조 없는 파일을 지우면 아무 일도 일어나지 않습니다. 이력에만 있는 파일도 오늘은 아무 일이 \
+없습니다 — 그러다 누군가 지난 분기 버전을 열면 깨진 이미지를 봅니다. 두 경우 모두 지금 \
+보이는 페이지는 똑같이 멀쩡합니다. 이 앱이 존재하는 이유 중 하나가 이것입니다.
+aj.help.labels.notrash = [휴지통] 상태는 없습니다. 페이지를 휴지통에 넣으면 Confluence 가 \
+그 첨부도 삭제 표시하는데, 이 리포트가 읽는 API 는 삭제 표시된 첨부를 아예 돌려주지 \
+않습니다. 즉 그 상태는 한 번도 나올 수 없습니다. 나올 수 없는 상태를 표에 적어 두면 \
+"확인했더니 없더라"로 읽히는데, 그건 사실이 아닙니다.
+
+aj.help.badges = 표시 — 얼마나 비싼가
+aj.help.badges.intro = 표시는 상태와 무관하고 한 첨부가 여러 개를 받을 수 있습니다. \
+사용 중이면서 구버전이 스무 개일 수 있고, 참조가 없으면서 중복일 수도 있습니다. 아래 \
+임계값은 고정값이 아니라 지금 설정된 값입니다.
+aj.help.col.badge = 표시
+aj.help.col.threshold = 현재 임계값
+aj.help.col.meaning = 무슨 뜻인가
+aj.help.badges.settings = 값을 바꾸려면
+aj.help.threshold.oldversions = 버전 {0} 개 이상, 또는 구버전 합계 {1} MB 이상
+aj.help.threshold.large = {0} MB 이상
+aj.help.threshold.stale = {0} 일 동안 변경 없음
+aj.help.threshold.duplicate.quick = 크기와 앞 64KB 가 일치
+aj.help.threshold.duplicate.full = 전체 SHA-1 이 일치
+
+aj.help.refs = 참조는 어디에서 오는가
+aj.help.refs.intro = 어느 행에서든 [쓰는 곳] 숫자를 누르면 실제 페이지 목록이 펼쳐집니다. \
+근거를 확인할 수 없는 상태는 그것만 보고 조치하면 안 되는 상태이므로, 여기의 모든 판정은 \
+펼쳐 볼 수 있습니다.
+aj.help.ref.desc.own = 첨부가 붙어 있는 바로 그 페이지의 현재 본문입니다.
+aj.help.ref.desc.other = 다른 페이지나 블로그의 현재 본문입니다. 다른 스페이스도 \
+포함합니다. 첨부를 위험하게 만드는 것이 바로 이 경우입니다.
+aj.help.ref.desc.comment = 댓글입니다. 같은 페이지의 댓글이면 평범한 사용으로, 다른 \
+페이지의 댓글이면 바깥에서의 사용으로 셉니다.
+aj.help.ref.desc.spacedesc = 스페이스 설명입니다. 저장 형식이 아니라 wiki 표기라서 따로 \
+읽습니다.
+aj.help.ref.desc.history = 과거 버전 본문입니다. 설정에서 과거 버전 검사를 켰을 때만 \
+수집됩니다.
+
+aj.help.duplicates = 중복
+aj.help.duplicates.body = 중복 찾기는 2단계로 해야 쌉니다. 먼저 크기와 확장자가 정확히 \
+같은 것끼리 묶습니다. 크기가 다르면 내용이 같을 수 없으므로 이 단계는 빠뜨리는 것이 없고, \
+대부분의 파일이 여기서 단독이 되어 떨어집니다. 살아남은 것만 디스크에서 읽어 해시합니다.
+aj.help.duplicates.mode = 기본인 빠른 방식은 파일의 크기와 앞 64KB 만 읽습니다. 강한 \
+단서이지만 증명은 아니므로 그 묶음에는 "후보"라고 적습니다. 확실하게 보려면 설정에서 전체 \
+해시로 바꾸십시오 — 후보 파일을 처음부터 끝까지 읽습니다.
+
+aj.help.limits = 이 리포트가 답하지 못하는 것
+aj.help.limit.notdelete = 아무것도 바꾸지 않습니다. 파일 삭제, 구버전 정리, 첨부 이동은 \
+전부 Confluence 에서 직접 해야 합니다.
+aj.help.limit.sizes = 용량은 Confluence 가 기록한 첨부 파일 자체의 크기입니다. 검색 색인· \
+썸네일·추출 텍스트는 빠져 있어 홈 디렉터리 전체 크기보다 작게 나옵니다.
+aj.help.limit.deleted = Confluence 가 이미 삭제 표시한 첨부(휴지통에 든 페이지의 첨부, \
+개별 삭제한 첨부)는 파일이 디스크에 남아 있어도 이 합계에 없습니다. 이 리포트가 읽는 \
+API 가 그 행을 돌려주지 않기 때문입니다.
+aj.help.limit.history = 과거 버전 검사를 꺼 두면 과거 버전에서만 쓰이는 첨부가 [참조 없음] \
+으로 나오고 "이력 미검사"라고 표기됩니다.
+aj.help.limit.templates = 페이지 템플릿과 블루프린트는 읽지 않습니다. 템플릿에서만 쓰이는 \
+첨부는 [참조 없음] 으로 나옵니다.
+aj.help.limit.external = [참조 없음] 은 이 앱이 보는 자리에서 참조를 찾지 못했다는 뜻일 \
+뿐입니다. 이 앱이 해석하지 못하는 매크로, 다운로드 주소를 직접 거는 외부 시스템, 읽지 \
+못한 본문이 전부 같은 결과를 냅니다. "가장 먼저 살펴볼 자리"로 쓰고 "지워도 된다는 허가"로 \
+읽지 마십시오.
+aj.help.limit.snapshot = 이 화면들의 모든 수치는 마지막 스캔에서 온 것이고, 기준 시각이 \
+버튼 옆에 적혀 있습니다. 화면을 연다고 무언가를 새로 재지는 않습니다.

@@ -1,0 +1,42 @@
+<atlassian-plugin key="${atlassian.plugin.key}" name="${project.name}" plugins-version="2">
+    <plugin-info>
+        <description>${project.description}</description>
+        <version>${project.version}${aj.build.qualifier}</version>
+        <vendor name="${project.organization.name}" url="${project.organization.url}"/>
+        <!-- PNG, never SVG: UPM decodes the icon with ImageIO and leaves the slot blank for
+             anything it cannot read. tools/make-icons.py generates both. -->
+        <param name="plugin-icon">images/pluginIcon.png</param>
+        <param name="plugin-logo">images/pluginLogo.png</param>
+        <param name="atlassian-data-center-compatible">true</param>
+    </plugin-info>
+
+    <resource type="i18n" name="i18n" location="attachment-janitor"/>
+
+    <ao key="attachment-janitor-ao">
+        <entity>co.bskim.confluence.attachjanitor.ao.AjScanRun</entity>
+        <entity>co.bskim.confluence.attachjanitor.ao.AjSpaceStat</entity>
+        <entity>co.bskim.confluence.attachjanitor.ao.AjAttachment</entity>
+        <entity>co.bskim.confluence.attachjanitor.ao.AjRefHit</entity>
+        <entity>co.bskim.confluence.attachjanitor.ao.AjDupGroup</entity>
+    </ao>
+
+    <rest key="attachment-janitor-rest" path="/attachment-janitor" version="1.0">
+        <description>Scan control and report data</description>
+        <package>co.bskim.confluence.attachjanitor.rest</package>
+    </rest>
+
+    <servlet key="attachment-janitor-servlet" name="Attachment Janitor"
+             class="co.bskim.confluence.attachjanitor.servlet.JanitorServlet">
+        <url-pattern>/attachment-janitor</url-pattern>
+        <url-pattern>/attachment-janitor/*</url-pattern>
+    </servlet>
+
+    <!-- Confluence's own entries in this section stop well below 200, so this lands at the
+         bottom of "Configuration" rather than in the middle of the built-in items. -->
+    <web-item key="attachment-janitor-admin-link" name="Attachment Janitor Admin Link"
+              section="system.admin/configuration" weight="200">
+        <label key="aj.admin.section.label"/>
+        <link linkId="attachment-janitor-admin-link">/plugins/servlet/attachment-janitor</link>
+    </web-item>
+
+</atlassian-plugin>
