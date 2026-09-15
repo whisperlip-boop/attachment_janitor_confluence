@@ -1,7 +1,6 @@
 # Attachment Janitor
 
-Attachment storage reporting for Confluence Server / Data Center 7.x, with one
-clean-up action.
+Attachment storage reporting for Confluence Server 7.x, with one clean-up action.
 
 Confluence does not tell an administrator how much disk each space's attachments occupy, and
 it does not show old versions at all: re-upload `spec.xlsx` thirty times and the page still
@@ -115,16 +114,32 @@ and unresolvable references as their own numbers rather than folding them into t
 
 ## Requirements
 
-- Confluence Server / Data Center 7.x (built against 7.8.1, deployment target 7.12.3)
+- Confluence Server 7.x (built against 7.8.1, deployment target 7.12.3)
 - Java 8
 - Confluence administrator rights to open the screen
 
-On Data Center, a scan and a cleanup are serialised across the whole cluster by a single
-cluster lock, so only one of them runs at a time no matter which node the request lands on;
-a request that arrives while another job holds the lock is refused immediately rather than
-queued. Two caveats, stated plainly: this has been exercised on a single node only, never
-against a real multi-node cluster, and both progress and Cancel are node-local — a browser
-served by another node sees nothing while the job runs, and cannot stop it.
+**This app does not declare Data Center compatibility.** A scan and a cleanup are serialised
+by a cluster lock rather than an in-process flag, so the code is written for more than one
+node, but that has only ever been exercised on a single node — there is no cluster here to
+test against. A defect that only a real cluster shows up has already been found once by
+reading the code, so the claim is kept to what has been verified. Two things are known to be
+missing for multi-node use even if the lock holds: progress and Cancel are node-local, so a
+browser served by another node sees nothing while a job runs and cannot stop it.
+
+## Long-running cleanup
+
+Removing older versions runs in the background on the server, not inside the HTTP request.
+A cleanup costs roughly 105ms per file, so a large selection takes minutes — long enough
+that a reverse proxy or load balancer in front of Confluence closes an idle connection
+before the work finishes. The browser starts the job, gets a batch id back immediately, and
+polls for progress; closing the page does not stop the work, and reopening the screen
+re-attaches to a job that is still running. Cancel stops the job before the next file.
+**Versions already removed are not restored** — Confluence has no trash for attachment
+versions.
+
+Every cleanup writes two kinds of record: one row per file saying which version numbers were
+removed, and one summary row per run. Both are kept for the number of days set on the
+Settings screen (365 by default, minimum 30) and are deleted the next time a cleanup runs.
 
 ## Building
 

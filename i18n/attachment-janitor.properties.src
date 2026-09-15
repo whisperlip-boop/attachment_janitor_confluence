@@ -199,6 +199,11 @@ duplicates".
 aj.set.keepruns = Scans to keep
 aj.set.keepruns.hint = Per-space totals are kept for this many scans so you can see a trend. \
 Per-attachment rows are only ever kept for the newest finished scan.
+aj.set.keepactiondays = Cleanup records to keep (days)
+aj.set.keepactiondays.hint = Removing older versions cannot be undone, so the record of what \
+  was removed is the only trace. Records older than this are deleted the next time a cleanup \
+  runs. The minimum is 30 days: a window of a few days is a recent-activity list, not an \
+  audit trail.
 aj.set.scanhistory = Examine past page versions
 aj.set.scanhistory.hint = Needed to separate "History only" from "Unreferenced". \
 Off by default: it adds a query per page version and can make a scan several times \
@@ -339,6 +344,24 @@ refresh the numbers.
 aj.clean.partial = {0} files were skipped because they changed since the preview, and {1} \
 failed.
 aj.clean.nothing = Nothing to remove for the files you selected.
+aj.clean.previewing = Reading versions... {0} of {1} files.
+aj.clean.previewstopped = The preview stopped partway. Nothing has been removed. Try again.
+aj.clean.preparing = Working out what to remove...
+aj.clean.progress = Removing... {0} of {1} files, {2} reclaimed so far.
+aj.clean.stop = Stop
+aj.clean.cancelled = Stopped partway. Versions already removed are gone for good.
+aj.clean.failed = The cleanup could not finish ({0}). Versions already removed are gone for good.
+aj.clean.startfailed = The cleanup could not be started. Nothing has been removed.
+aj.clean.toomany = At most {0} files can be removed in one go; {1} are selected. Narrow the \
+  filter or clear some of the selection.
+aj.clean.keepchanged = "Keep last" was changed while the preview was being read, so that \
+  preview was discarded. Press Preview again.
+aj.clean.superseded = Your run has finished, and another run has started since. The table \
+  has been reloaded; run a scan for exact numbers.
+aj.clean.detached = Lost contact with the server while following the cleanup. It may still be \
+  running there. This screen will try to reconnect; reload it to be sure.
+aj.clean.keepslow = Removal runs in the background on the server. You can close this page - \
+  it keeps going, and this screen picks it up again when you come back.
 
 # --- 설명서: 구버전 정리 ---
 aj.help.cleanup = Removing older versions
@@ -368,11 +391,20 @@ does, the preview is the one that is right.
 aj.help.cleanup.rule.recheck = At the moment of removal each file is read once more and \
 compared with what the preview showed you. If someone uploaded or removed a version in \
 between, that one file is skipped and reported; the rest go ahead.
+aj.help.cleanup.rule.background = Removal runs on the server, not in your browser. The page \
+hands the work over and then follows its progress, so a large batch cannot be cut short by a \
+proxy or load balancer closing an idle connection. You can close the page and come back: the \
+work keeps going and this screen picks it up again. Stop halts it before the next file - \
+versions already removed are not restored.
 aj.help.cleanup.rule.log = Every file is recorded - what was removed, by whom, when, and the \
-version numbers. Skipped and failed files are recorded too, because a silent omission is the \
-worst outcome.
+version numbers - and each run also gets a one-line summary so a large batch does not bury \
+the runs before it. Skipped and failed files are recorded too, because a silent omission is \
+the worst outcome. Records are kept for the number of days set on the Settings screen, a \
+year by default, and are deleted the next time a cleanup runs.
 aj.help.cleanup.rule.websudo = Removal asks for your password again even though reading does \
-not. A few seconds is worth it in front of something irreversible.
+not. A few seconds is worth it in front of something irreversible. Stop is the exception: it \
+never asks, because an expired confirmation must not leave you unable to halt a running \
+removal.
 aj.help.cleanup.caveat = Two things to know before you use it. It cannot be undone: Confluence \
 has no trash for attachment versions, so the database rows and the files on disk go \
 immediately. And if anyone has linked directly to a download URL with a version pinned in it, \

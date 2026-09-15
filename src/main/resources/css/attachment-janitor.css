@@ -265,6 +265,11 @@
 
 /* ------------------------------------------------------------------- 필터 */
 
+/* 랭킹 화면은 스캔 전엔 이 칸을 채우지 않는다. 비어 있으면 회색 띠만 남으니 숨긴다. */
+.aj-filters:empty {
+    display: none;
+}
+
 .aj-filters {
     align-items: center;
     background: #F4F5F7;
@@ -678,6 +683,18 @@ td.aj-pick {
 }
 
 /* 정리 줄 안의 알림. 위쪽 배너는 표를 보고 있으면 화면 밖이라 여기가 필요하다. */
+/* 정리 줄 안의 막대. 스캔 막대(.aj-progress)를 그대로 쓰되, 정리 줄은 flex 라
+   위 여백이 필요 없고 폭도 줄 안에 맞춘다. */
+.aj-clean-meter:empty {
+    display: none;
+}
+
+.aj-clean-meter .aj-progress {
+    display: block;
+    margin-top: 0;
+    width: 160px;
+}
+
 .aj-clean-said {
     color: #BF2600;
     font-size: 12px;

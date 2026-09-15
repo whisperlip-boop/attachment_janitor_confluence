@@ -17,8 +17,11 @@ import java.util.Date;
  * 문자열로 함께 적는다 — 버전 번호는 재부여되지 않으므로(실측 32번) 나중에 봐도 뜻이
  * 통한다.
  *
- * <p>스캔 결과와 달리 <b>이 표는 보관 정책이 지우지 않는다.</b> 실행 기록이 스캔 세대
- * 정리에 휩쓸려 사라지면 감사 기록이 아니다.
+ * <p><b>스캔 세대 정리는 이 표를 건드리지 않는다.</b> 실행 기록이 스캔 보관 정책에
+ * 휩쓸려 사라지면 감사 기록이 아니다. 이 표에는 <b>자기 보관 기간</b>이 따로 있다 —
+ * 설정의 "정리 기록 보관 일수"(기본 365)이고, 넘긴 행은 다음 정리 때 배치 요약
+ * ({@link AjActionBatch})과 함께 지워진다. 하한을 30일로 둔 것은 며칠짜리 창이
+ * 감사 기록이 아니라 최근 활동 목록이기 때문이다.
  */
 @Table("ACTION_LOG")
 public interface AjActionLog extends Entity
@@ -29,6 +32,8 @@ public interface AjActionLog extends Entity
 
     void setBatchId(String batchId);
 
+    /** 보관 정책이 이 칸으로 지운다. 그래서 인덱스가 있다. */
+    @Indexed
     Date getAt();
 
     void setAt(Date at);

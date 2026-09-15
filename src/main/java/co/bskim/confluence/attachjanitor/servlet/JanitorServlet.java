@@ -103,6 +103,10 @@ public class JanitorServlet extends HttpServlet
         out.print(StaticAssets.escape(spaceKey == null ? "" : spaceKey));
         // 필터 목록은 열거형에서 나온다. 화면이 코드를 직접 적어 두면 열거형에 값을
         // 하나 더해도 필터에서만 조용히 빠진다 — 그건 테스트가 못 잡는다.
+        // 한 번에 고를 수 있는 첨부 수. REST 의 MAX_IDS 와 같아야 한다 — 화면이 모르면
+        // 6,000개를 골라 미리보기까지 다 보고 실행에서 400 을 맞는다(리뷰).
+        out.print("\" data-max-ids=\"");
+        out.print(co.bskim.confluence.attachjanitor.rest.JanitorResource.MAX_IDS);
         out.print("\" data-labels=\"");
         out.print(StaticAssets.escape(labelCodes()));
         out.print("\" data-badges=\"");
@@ -264,7 +268,10 @@ public class JanitorServlet extends HttpServlet
         {
             out.print("<div id=\"aj-summary\" class=\"aj-summary\"></div>");
         }
-        if (screen == Screen.SPACE_DETAIL || screen == Screen.DUPLICATES)
+        // 랭킹 화면에도 이 칸이 필요하다. 거를 것은 없지만 "쪽당 건수"가 여기 들어간다 —
+        // 실제 인스턴스의 스페이스 수는 표 하나에 다 그릴 만큼 적지 않다.
+        if (screen == Screen.SPACES || screen == Screen.SPACE_DETAIL
+                || screen == Screen.DUPLICATES)
         {
             out.print("<div id=\"aj-filters\" class=\"aj-filters\"></div>");
         }

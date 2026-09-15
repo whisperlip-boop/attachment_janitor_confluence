@@ -58,6 +58,19 @@
        남아서 눌러도 아무 일도 안 일어난다. 새 스캔이 오면 버린다. */
     var cleaned = {};
     var cleanedForRun = null;
+    /* 도는 정리를 따라가는 타이머. 표 폴링(pollTimer)과 별개다 — 정리는 8분까지 가는데
+       그동안 수천 행짜리 보고를 1.5초마다 다시 받을 수는 없다. */
+    var cleanTimer = null;
+    /* 정리 줄에 마지막으로 낸 문구. 표를 다시 그려도 살아남아야 한다. */
+    var cleanSaid = '';
+    /* 정리 막대의 비율. null 이면 막대 자체가 없다(도는 중이 아니다). */
+    var cleanPercent = null;
+    /* 내가 시작했거나 붙은 실행의 식별자. 폴링이 다른 실행을 보고 있으면 여기서 갈린다. */
+    var cleanBatchId = null;
+    /* 미리보기 묶음이 도는 중인가. 도는 동안 단추를 다시 누르면 두 줄이 겹쳐 돈다. */
+    var previewing = false;
+    /* 한 번에 고를 수 있는 첨부 수. 서버가 실어 보낸다 — 여기에 숫자를 다시 적지 않는다. */
+    var MAX_IDS = Number(root.getAttribute('data-max-ids')) || 5000;
     var keepVersions = 3;
 
     /* ------------------------------------------------------------------ 공통 */
@@ -130,6 +143,14 @@
             }
             if (xhr.status === 401 || xhr.status === 403) {
                 stopPolling();
+                /* 정리 폴링도 멈춘다. 여기서 안 멈추면 onDone 이 불리지 않아 타이머가
+                   살아 있는 것처럼 남고, 중지 단추가 안 사라지고 미리보기가 계속 잠기고
+                   다음 load() 의 재부착 판정까지 막힌다. **stopPolling() 안에 넣으면
+                   안 된다** — load() 가 idle 마다 부르는데, 그게 방금 재부착한 폴링을
+                   죽인다. */
+                if (cleanTimer) {
+                    cleanupDetached(false);
+                }
                 idleButtons();
                 /* 웹수도가 풀린 것과 권한이 없는 것은 다르다. 전자는 다시 인증하면
                    되는데 "권한이 없습니다"만 내면 관리자가 할 수 있는 일이 없어진다. */
@@ -148,6 +169,9 @@
             }
             if (xhr.status === 0 || xhr.status >= 500) {
                 stopPolling();
+                if (cleanTimer) {
+                    cleanupDetached(true);
+                }
                 idleButtons();
                 banner('error', text('aj.error.network'));
                 return;
@@ -360,13 +384,23 @@
 
         var spaces = payload.spaces || [];
         if (!spaces.length) {
+            if (filterBox) {
+                filterBox.innerHTML = '';
+                filterBox.removeAttribute('data-built');
+            }
             tableBox.innerHTML = '<p class="aj-muted">' + escape(text('aj.state.empty'))
                 + '</p>';
             return;
         }
+        /* 막대의 기준은 **전체 중 가장 큰 스페이스**다. 쪽 안에서 다시 재면 쪽을 넘길
+           때마다 같은 스페이스의 막대 길이가 달라져 비교가 무의미해진다. 그래서 자르기
+           전에 잰다. 범례도 "가장 큰 스페이스 기준"이라고 적고 있다. */
         var largest = spaces.reduce(function (top, row) {
             return Math.max(top, Number(row.totalBytes) || 0);
         }, 0) || 1;
+
+        renderPerPage();
+        var page = slice(spaces);
 
         var head = '<table class="aj-table"><thead><tr>'
             + th('aj.col.space', '') + th('aj.col.files', ' aj-num')
@@ -375,7 +409,7 @@
             + th('aj.col.risky', ' aj-num') + th('aj.col.duplicates', ' aj-num')
             + '</tr></thead><tbody>';
 
-        var body = spaces.map(function (row) {
+        var body = page.rows.map(function (row) {
             var total = Number(row.totalBytes) || 0;
             var old = Number(row.oldVersionBytes) || 0;
             var name = row.spaceKey
@@ -413,6 +447,7 @@
         }).join('');
 
         tableBox.innerHTML = head + body + '</tbody></table>'
+            + pager(page.total, page.pageCount)
             + '<p class="aj-legend">'
             + '<span class="aj-swatch aj-swatch-latest"></span>'
             + escape(text('aj.bar.latest'))
@@ -422,9 +457,35 @@
             + escape(text('aj.bar.rest'))
             + '</p>'
             + '<p class="aj-foot">' + escape(text('aj.note.nospace')) + '</p>';
+        bindPageLinks();
+        /* CSV 는 쪽을 따르지 않는다. 보고 있는 쪽만 내려받아지면 내보내기가 아니다. */
         if (csvLink) {
             csvLink.setAttribute('href', api + '/spaces.csv');
         }
+    }
+
+    /**
+     * 거를 것이 없는 화면(랭킹 · 중복)의 "쪽당 건수" 하나.
+     *
+     * 상세 화면은 {@code renderFilters} 가 필터들과 함께 같은 칸을 만든다. 둘이 같은
+     * {@code data-built} 표시를 쓰므로 한 화면에서 둘이 겹치는 일은 없다.
+     */
+    function renderPerPage() {
+        if (!filterBox || filterBox.getAttribute('data-built') === 'yes') {
+            return;
+        }
+        filterBox.innerHTML = '<label>' + escape(text('aj.filter.perpage'))
+            + ' <select id="aj-f-size-page">'
+            + PAGE_SIZES.map(function (size) {
+                return '<option value="' + size + '"'
+                    + (size === paging.size ? ' selected' : '') + '>'
+                    + escape(number(size)) + '</option>';
+            }).join('')
+            + '</select></label>';
+        filterBox.setAttribute('data-built', 'yes');
+        bind('aj-f-size-page', 'change', function (value) {
+            paging.size = Number(value) || 50;
+        });
     }
 
     /* ------------------------------------------------------- 스페이스 상세 화면 */
@@ -504,15 +565,9 @@
             + th('aj.col.refs', ' aj-num')
             + '</tr></thead><tbody>';
 
-        /* 쪽 자르기. 정렬한 뒤에 자른다 — 자르고 정렬하면 쪽마다 순서가 달라진다. */
-        var pageCount = Math.max(1, Math.ceil(visible.length / paging.size));
-        if (paging.page > pageCount) {
-            paging.page = pageCount;
-        }
-        var from = (paging.page - 1) * paging.size;
-        var pageRows = visible.slice(from, from + paging.size);
+        var page = slice(visible);
 
-        var body = pageRows.map(function (row, index) {
+        var body = page.rows.map(function (row, index) {
             var container = row.containerId
                 ? '<a href="' + escape(contentUrl(row.containerId)) + '">'
                     + escape(row.containerTitle || row.containerId) + '</a>'
@@ -552,24 +607,14 @@
         }).join('');
 
         tableBox.innerHTML = cleanBar(cleanable.length) + head + body + '</tbody></table>'
-            + pager(visible.length, pageCount);
+            + pager(page.total, page.pageCount);
         if (csvLink) {
             csvLink.setAttribute('href',
                 api + '/space.csv?key=' + encodeURIComponent(spaceKey));
         }
 
         bindCleanup();
-
-        Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-page'),
-            function (link) {
-                link.addEventListener('click', function (event) {
-                    event.preventDefault();
-                    paging.page = Number(link.getAttribute('data-page')) || 1;
-                    renderDetail(lastPayload);
-                    // 다음 쪽 첫 줄이 화면 밖이면 눌러 놓고 아무 일도 안 일어난 것처럼 보인다.
-                    tableBox.scrollIntoView({block: 'start'});
-                });
-            });
+        bindPageLinks();
 
         Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-expand'),
             function (link) {
@@ -651,7 +696,12 @@
             + '<button type="button" id="aj-clean-preview" class="aj-button"'
             + (versions ? '' : ' disabled') + '>'
             + escape(text('aj.clean.preview')) + '</button>'
-            + '<span class="aj-clean-said"></span>'
+            // 도는 정리를 멈추는 단추. 정리가 돌지 않으면 숨어 있다.
+            + '<button type="button" id="aj-clean-stop" class="aj-button"'
+            + (cleanTimer ? '' : ' hidden') + '>'
+            + escape(text('aj.clean.stop')) + '</button>'
+            + '<span class="aj-clean-meter">' + meterHtml() + '</span>'
+            + '<span class="aj-clean-said">' + escape(cleanSaid) + '</span>'
             + '<span class="aj-clean-note">' + escape(text('aj.clean.keepnote'))
             + '</span></div>';
     }
@@ -702,6 +752,22 @@
                 askPreview();
             });
         }
+        var stop = document.getElementById('aj-clean-stop');
+        if (stop) {
+            stop.addEventListener('click', function () {
+                stop.disabled = true;
+                /* 멈추는 것은 그다음부터다. 이미 지운 버전은 돌아오지 않는다. */
+                request('DELETE', '/cleanup' + (cleanBatchId
+                    ? '?batch=' + encodeURIComponent(cleanBatchId) : ''), function () {
+                    stop.disabled = false;
+                });
+            });
+        }
+        /* 정리가 도는 동안에는 새 미리보기를 시작하지 못하게 한다. 눌러도 실행은
+           409 로 막히는데, 거기까지 가서 막히면 "왜 안 되지"가 된다. */
+        if (cleanTimer && preview) {
+            preview.disabled = true;
+        }
     }
 
     /* 체크 하나 눌렀다고 표 전체를 다시 그리지 않는다 — 스크롤 위치가 튄다. */
@@ -718,9 +784,17 @@
         }
         if (button) {
             // 지울 버전이 0 이면 눌러도 빈 미리보기가 온다. 누를 수 없게 둔다.
-            button.disabled = !versions;
+            // 정리가 도는 동안에도 잠근다 — 여기서 빼면 체크박스를 하나 누르는 것만으로
+            // bindCleanup 의 잠금이 풀린다.
+            button.disabled = !versions || !!cleanTimer || previewing;
         }
     }
+
+    /* 미리보기 한 번에 보낼 첨부 수. 미리보기도 첨부 하나마다 약 14ms 를 쓰므로
+       (구버전 목록을 읽는다) 수천 개를 한 요청에 넣으면 그 요청이 몇 분 동안 아무것도
+       내보내지 않는다. 앞단이 AWS ALB 인 환경의 유휴 시간 초과가 60초다. 미리보기는
+       읽기만 하므로 끊어 보내도 잠금도 배치 정체성도 문제가 되지 않는다. */
+    var PREVIEW_CHUNK = 300;
 
     function askPreview() {
         var ids = pickedRemovable().map(function (row) {
@@ -731,12 +805,70 @@
         }
         nearButton('');
         banner('', '');
-        request('POST', '/cleanup/preview', function (status, payload) {
-            if (status !== 200 || !payload) {
+        if (previewing) {
+            return;
+        }
+        /* 서버 상한이다. 여기서 안 막으면 6,000개를 300개씩 스무 번 다 읽어 미리보기까지
+           보여 준 뒤 실행에서 400 을 맞고 "시작하지 못했다"만 나온다(리뷰). */
+        if (ids.length > MAX_IDS) {
+            nearButton(format(text('aj.clean.toomany'), number(MAX_IDS), number(ids.length)));
+            banner('warn', format(text('aj.clean.toomany'), number(MAX_IDS), number(ids.length)));
+            return;
+        }
+        /* 묶음이 도는 동안 유지 개수가 바뀌면 묶음마다 다른 keep 으로 읽어 섞인다.
+           시작할 때 값을 잡아 끝까지 쓴다. */
+        var keep = keepVersions;
+        var merged = {items: [], fileCount: 0, versionCount: 0, bytes: 0, keep: keep};
+        var at = 0;
+        previewing = true;
+        var button = document.getElementById('aj-clean-preview');
+        if (button) {
+            button.disabled = true;
+        }
+
+        function finished() {
+            previewing = false;
+            refreshCleanBar();
+        }
+
+        function next() {
+            if (at >= ids.length) {
+                finished();
+                if (merged.keep !== keepVersions) {
+                    /* 읽는 동안 유지 개수를 바꿨다. 이 미리보기는 옛 값으로 읽은 것이라
+                       보여 주지 않는다 — 실행하면 서버가 전부 "바뀜"으로 건너뛴다. */
+                    nearButton(text('aj.clean.keepchanged'));
+                    return;
+                }
+                nearButton('');
+                showPreview(merged);
                 return;
             }
-            showPreview(payload);
-        }, JSON.stringify({ids: ids, keep: keepVersions}));
+            var slice = ids.slice(at, at + PREVIEW_CHUNK);
+            at += slice.length;
+            if (ids.length > PREVIEW_CHUNK) {
+                /* 여러 묶음이면 어디까지 읽었는지 단추 옆에 적는다. 안 그러면 몇십 초
+                   동안 아무 일도 안 일어나는 것처럼 보인다. */
+                nearButton(format(text('aj.clean.previewing'),
+                    number(Math.min(at, ids.length)), number(ids.length)));
+            }
+            request('POST', '/cleanup/preview', function (status, payload) {
+                if (status !== 200 || !payload) {
+                    /* 조용히 멈추지 않는다. request() 가 401/403/5xx 는 이미 배너로
+                       말했고, 여기서는 그 밖의 경우에 단추 옆을 비우지 않는다. */
+                    finished();
+                    nearButton(text('aj.clean.previewstopped'));
+                    return;
+                }
+                merged.items = merged.items.concat(payload.items || []);
+                merged.fileCount += payload.fileCount || 0;
+                merged.versionCount += payload.versionCount || 0;
+                merged.bytes += payload.bytes || 0;
+                merged.keep = payload.keep || merged.keep;
+                next();
+            }, JSON.stringify({ids: slice, keep: keep}));
+        }
+        next();
     }
 
     /**
@@ -784,6 +916,9 @@
                     bytes(preview.bytes), number(preview.keep)))
                 + '</p>'
             + '<p class="aj-clean-danger">' + escape(text('aj.clean.irreversible')) + '</p>'
+            /* 백그라운드로 돈다는 것을 실행 직전에 말한다. 8분짜리 작업을 시작하면서
+               "화면을 닫으면 안 된다"고 착각하게 두지 않는다. */
+            + '<p class="aj-clean-lead">' + escape(text('aj.clean.keepslow')) + '</p>'
             + warn
             + '<div class="aj-clean-list"><table class="aj-table"><thead><tr>'
             + '<th>' + escape(text('aj.col.filename')) + '</th>'
@@ -804,40 +939,198 @@
             });
     }
 
+    /**
+     * 실행. **서버가 202 로 답하고 백그라운드에서 돈다.**
+     *
+     * 전에는 이 요청이 끝날 때까지 기다렸는데, 파일당 약 105ms 라 1,020개가 107초였고
+     * 상한이면 9분이다. 그동안 연결에 아무것도 흐르지 않아 앞단(AWS ALB)의 유휴 시간
+     * 초과 60초에 걸렸다 — 브라우저는 통신 실패를 보는데 **삭제는 서버에서 계속됐다.**
+     */
     function runCleanup(ids, expect) {
         closeModal();
         banner('info', text('aj.clean.running'));
+        nearButton(text('aj.clean.running'));
         request('POST', '/cleanup', function (status, payload) {
             if (status === 409) {
                 banner('warn', text('aj.error.busy'));
+                nearButton(text('aj.error.busy'));
+                /* 스캔의 409 처리와 같다. 다시 읽어야 도는 작업에 붙는다 — 드물지만
+                   서버가 30초 안에 답을 못 받아 409 를 냈는데 워커는 실제로 지우기 시작한
+                   경우, 이게 없으면 내 삭제가 보이지 않는 채 돈다(리뷰). */
+                load();
                 return;
             }
-            if (status !== 200 || !payload) {
+            if (status !== 202 || !payload) {
+                nearButton(text('aj.clean.startfailed'));
                 return;
             }
             picked = {};
-            (payload.done || []).forEach(function (item) {
-                var seen = cleaned[item.attachmentId]
-                    || {versionsRemoved: 0, bytesRemoved: 0};
-                cleaned[item.attachmentId] = {
-                    versionsRemoved: seen.versionsRemoved + item.versionsRemoved,
-                    bytesRemoved: seen.bytesRemoved + item.bytesRemoved
-                };
-            });
-            var message = format(text('aj.clean.done'),
-                number(payload.filesDone), number(payload.versionsRemoved),
-                bytes(payload.bytesRemoved));
-            if (payload.filesSkipped || payload.filesFailed) {
-                message += ' ' + format(text('aj.clean.partial'),
-                    number(payload.filesSkipped), number(payload.filesFailed));
-            }
-            banner('warn', message);
-            load();
+            cleanBatchId = payload.batchId || null;
+            showCleanProgress(payload);
+            /* 첫 번째만 빨리 묻는다. 1.5초를 기다리면 **짧은 작업은 "0/13개" 하나만
+               보여주고 끝난다** — 숫자가 한 번도 안 움직여서 아무 일도 없었던 것처럼
+               보인다(사용자 제보). 그 뒤로는 1.5초로 돌아간다. */
+            pollCleanup(FIRST_POLL_MS);
         }, JSON.stringify({ids: ids, keep: keepVersions, expect: expect}));
     }
 
-    /** 정리 줄 안에 내는 알림. 표를 보고 있는 사람 눈에 닿는 유일한 자리다. */
+    /* 첫 폴링까지의 간격. 짧은 작업에서도 숫자가 한 번은 움직이게 한다. */
+    var FIRST_POLL_MS = 350;
+    var POLL_MS = 1500;
+
+    function pollCleanup(delay) {
+        stopCleanPolling();
+        cleanTimer = window.setTimeout(function () {
+            request('GET', '/cleanup', function (status, payload) {
+                if (status !== 200 || !payload) {
+                    /* 401/403/5xx 는 request() 가 이미 말하고 controls 도 되돌렸다.
+                       그 밖의 응답이면 여기서 되돌린다. */
+                    cleanupDetached();
+                    return;
+                }
+                if (payload.running && payload.batchId !== cleanBatchId) {
+                    /* 내 실행은 끝났고 그 사이 다른 관리자가 새 실행을 시작했다. 그 실행의
+                       숫자를 내 것처럼 보여 주지 않고, 내 내역은 이제 받을 길이 없으니
+                       표를 다시 읽는 것으로 대신한다(옛것 표시가 붙어 있다). */
+                    stopCleanPolling();
+                    cleanPercent = null;
+                    drawMeter();
+                    nearButton(text('aj.clean.superseded'));
+                    banner('warn', text('aj.clean.superseded'));
+                    cleanBatchId = null;
+                    load();
+                    return;
+                }
+                if (payload.running) {
+                    showCleanProgress(payload);
+                    pollCleanup(POLL_MS);
+                    return;
+                }
+                stopCleanPolling();
+                finishCleanup(payload);
+            });
+        }, delay === undefined ? POLL_MS : delay);
+    }
+
+    function stopCleanPolling() {
+        if (cleanTimer) {
+            window.clearTimeout(cleanTimer);
+            cleanTimer = null;
+        }
+    }
+
+    /**
+     * 정리를 따라가다 연결을 잃었다. 폴링을 멈추는 것만으로는 부족하다(리뷰) — 중지
+     * 단추가 살아 있고, 막대가 남고, 체크박스를 한 번 건드리면 미리보기가 풀린다.
+     * 서버에서는 삭제가 계속되고 있을 수 있다. 그래서 (1) 조작을 되돌리고 (2) 잠시 뒤
+     * 표를 다시 읽어 도는 실행에 다시 붙는다. 401/403 은 다시 읽어도 소용없으니 빼고.
+     */
+    function cleanupDetached(retry) {
+        stopCleanPolling();
+        cleanPercent = null;
+        drawMeter();
+        var stop = document.getElementById('aj-clean-stop');
+        if (stop) {
+            stop.hidden = true;
+            stop.disabled = false;
+        }
+        refreshCleanBar();
+        nearButton(text('aj.clean.detached'));
+        if (retry) {
+            window.setTimeout(load, 5000);
+        }
+    }
+
+    /** 진행 줄. **단추 옆이다** — 표를 보고 있는 사람 눈에 닿는 유일한 자리다. */
+    function showCleanProgress(progress) {
+        var line = progress.filesTotal
+            ? format(text('aj.clean.progress'), number(progress.filesDone
+                + progress.filesSkipped + progress.filesFailed),
+                number(progress.filesTotal), bytes(progress.bytesRemoved))
+            : text('aj.clean.preparing');
+        nearButton(line);
+        banner('info', line);
+        cleanPercent = progress.filesTotal ? progress.percent : -1;
+        drawMeter();
+        var stop = document.getElementById('aj-clean-stop');
+        if (stop) {
+            stop.hidden = false;
+        }
+        // 재부착으로 들어온 화면에는 bindCleanup 의 잠금이 안 걸려 있다.
+        var preview = document.getElementById('aj-clean-preview');
+        if (preview) {
+            preview.disabled = true;
+        }
+    }
+
+    function finishCleanup(progress) {
+        cleanPercent = null;
+        drawMeter();
+        var stop = document.getElementById('aj-clean-stop');
+        if (stop) {
+            stop.hidden = true;
+        }
+        /* 파일별 내역으로 표를 깎는다. 표는 **저장된 스캔**이라 방금 지운 것을 모른다.
+           진행률과 내역이 같은 응답에 오므로 "끝났는데 내역이 없는" 틈이 없다. */
+        (progress.done || []).forEach(function (item) {
+            var seen = cleaned[item.attachmentId] || {versionsRemoved: 0, bytesRemoved: 0};
+            cleaned[item.attachmentId] = {
+                versionsRemoved: seen.versionsRemoved + item.versionsRemoved,
+                bytesRemoved: seen.bytesRemoved + item.bytesRemoved
+            };
+        });
+        var message = format(text('aj.clean.done'), number(progress.filesDone),
+            number(progress.versionsRemoved), bytes(progress.bytesRemoved));
+        if (progress.filesSkipped || progress.filesFailed) {
+            message += ' ' + format(text('aj.clean.partial'),
+                number(progress.filesSkipped), number(progress.filesFailed));
+        }
+        /* 멈춘 것과 끝까지 간 것은 다르다. **이미 지운 것은 돌아오지 않는다**는 말을
+           같이 낸다 — 취소를 "없던 일로"로 읽으면 안 된다. */
+        if (progress.state === 'CANCELLED') {
+            message = text('aj.clean.cancelled') + ' ' + message;
+        } else if (progress.state === 'FAILED') {
+            message = format(text('aj.clean.failed'), progress.message || '') + ' ' + message;
+        }
+        banner('warn', message);
+        nearButton(message);
+        cleanBatchId = null;
+        load();
+    }
+
+    /**
+     * 정리 막대. 글자보다 눈에 먼저 들어온다 — 짧은 작업에서 문구 한 줄만 두면
+     * "눌렀는데 아무 일도 없다"로 보인다.
+     *
+     * 총계를 모르는 동안(미리보기가 도는 중)에는 비율을 지어내지 않고 흐르는 줄무늬를
+     * 쓴다. 스캔 막대와 같은 규칙이고 같은 CSS 다.
+     */
+    function meterHtml() {
+        if (cleanPercent === null) {
+            return '';
+        }
+        return cleanPercent < 0
+            ? '<span class="aj-progress aj-progress-unknown"><span></span></span>'
+            : '<span class="aj-progress"><span style="width:' + cleanPercent
+                + '%"></span></span>';
+    }
+
+    function drawMeter() {
+        var slot = tableBox.querySelector('.aj-clean-meter');
+        if (slot) {
+            slot.innerHTML = meterHtml();
+        }
+    }
+
+    /**
+     * 정리 줄 안에 내는 알림. 표를 보고 있는 사람 눈에 닿는 유일한 자리다.
+     *
+     * 문구를 변수에도 담아 둔다. 정리가 끝나면 표를 다시 그리는데, 그때 이 칸이 빈
+     * 채로 새로 만들어져 **"끝났다"는 말이 그리자마자 사라진다** — 위쪽 배너는 화면
+     * 밖일 수 있으므로 그러면 아무 말도 안 한 것이 된다(실측 34번).
+     */
     function nearButton(message) {
+        cleanSaid = message;
         var slot = tableBox.querySelector('.aj-clean-said');
         if (slot) {
             slot.textContent = message;
@@ -885,6 +1178,55 @@
      * 쪽이 하나뿐이면 번호도 화살표도 내지 않는다 — 누를 데가 없는 것을 그려 두면
      * 화면만 어수선해진다. 대신 총 개수는 언제나 적는다.
      */
+    /**
+     * 지금 화면을 다시 그린다.
+     *
+     * 쪽 넘김과 필터가 세 화면에서 같은 일을 한다. 화면마다 따로 적으면 한쪽만 고치는
+     * 사고가 난다 — 쪽 나누기를 랭킹·중복에 뒤늦게 붙인 것이 바로 그 경우였다.
+     */
+    function rerender() {
+        if (!lastPayload) {
+            return;
+        }
+        if (screen === 'DUPLICATES') {
+            renderDuplicates(lastPayload);
+        } else if (screen === 'SPACE_DETAIL') {
+            renderDetail(lastPayload);
+        } else {
+            renderSpaces(lastPayload);
+        }
+    }
+
+    /** 표 안의 쪽 번호에 동작을 붙인다. 세 화면이 같이 쓴다. */
+    function bindPageLinks() {
+        Array.prototype.forEach.call(tableBox.querySelectorAll('.aj-page'),
+            function (link) {
+                link.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    paging.page = Number(link.getAttribute('data-page')) || 1;
+                    rerender();
+                    // 다음 쪽 첫 줄이 화면 밖이면 눌러 놓고 아무 일도 안 일어난 것처럼 보인다.
+                    tableBox.scrollIntoView({block: 'start'});
+                });
+            });
+    }
+
+    /**
+     * 목록을 지금 쪽만큼 자른다. <b>정렬한 뒤에 자른다</b> — 자르고 정렬하면 쪽마다
+     * 순서가 달라진다. 쪽 번호가 범위를 넘으면(조건이 좁아진 뒤) 마지막 쪽으로 당긴다.
+     *
+     * @return {rows, pageCount, total}
+     */
+    function slice(all) {
+        var pageCount = Math.max(1, Math.ceil(all.length / paging.size));
+        if (paging.page > pageCount) {
+            paging.page = pageCount;
+        }
+        var from = (paging.page - 1) * paging.size;
+        return {rows: all.slice(from, from + paging.size),
+                pageCount: pageCount, total: all.length};
+    }
+
     function pager(total, pageCount) {
         var found = '<span class="aj-page-found">'
             + escape(format(text('aj.page.found'), number(total))) + '</span>';
@@ -1067,9 +1409,7 @@
             apply(element.value);
             // 무엇을 바꾸든 1쪽으로 돌아간다. 3쪽을 보다 조건을 좁히면 빈 화면이 된다.
             paging.page = 1;
-            if (lastPayload) {
-                renderDetail(lastPayload);
-            }
+            rerender();
         });
     }
 
@@ -1094,7 +1434,10 @@
             + th('aj.col.members', '')
             + '</tr></thead><tbody>';
 
-        var body = groups.map(function (group) {
+        renderPerPage();
+        var page = slice(groups);
+
+        var body = page.rows.map(function (group) {
             var members = (group.members || []).map(function (row) {
                 return '<li>' + escape(row.spaceKey || text('aj.col.nospace')) + ' / '
                     + '<a href="' + escape(contentUrl(row.containerId)) + '">'
@@ -1116,7 +1459,9 @@
         }).join('');
 
         tableBox.innerHTML = head + body + '</tbody></table>'
+            + pager(page.total, page.pageCount)
             + '<p class="aj-foot">' + escape(text('aj.dup.note')) + '</p>';
+        bindPageLinks();
         if (csvLink) {
             csvLink.setAttribute('href', api + '/duplicates.csv');
         }
@@ -1130,7 +1475,8 @@
         ['largeBytes', 'aj.set.largebytes', true],
         ['staleDays', 'aj.set.staledays', false],
         ['duplicateByteBudget', 'aj.set.hashbudget', true],
-        ['keepRuns', 'aj.set.keepruns', false]
+        ['keepRuns', 'aj.set.keepruns', false],
+        ['keepActionDays', 'aj.set.keepactiondays', false]
     ];
 
     function renderSettings(settings) {
@@ -1246,6 +1592,15 @@
                 renderDetail(payload);
             } else {
                 renderSpaces(payload);
+            }
+
+            /* 화면을 새로 열었는데 정리가 돌고 있으면 다시 붙는다. 서버에서 도는
+               작업이라 브라우저를 닫았다 열어도 살아 있다 — 그걸 화면이 모르면
+               관리자는 아무 일도 안 일어난 줄 안다. */
+            if (payload.cleanup && payload.cleanup.running && !cleanTimer) {
+                cleanBatchId = payload.cleanup.batchId || null;
+                showCleanProgress(payload.cleanup);
+                pollCleanup();
             }
 
             if (payload.progress && payload.progress.running) {

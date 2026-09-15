@@ -1,6 +1,7 @@
 package co.bskim.confluence.attachjanitor.store;
 
 import co.bskim.confluence.attachjanitor.analyze.DuplicateFinder;
+import co.bskim.confluence.attachjanitor.ao.AjActionBatch;
 import co.bskim.confluence.attachjanitor.ao.AjActionLog;
 import co.bskim.confluence.attachjanitor.ao.AjAttachment;
 import co.bskim.confluence.attachjanitor.ao.AjDupGroup;
@@ -16,6 +17,7 @@ import co.bskim.confluence.attachjanitor.model.SpaceTotals;
 import co.bskim.confluence.attachjanitor.settings.Settings;
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import net.java.ao.EntityStreamCallback;
 import net.java.ao.Query;
 
 import javax.inject.Inject;
@@ -24,9 +26,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Active Objects 를 만지는 유일한 곳.
@@ -53,6 +58,9 @@ public class ScanStore
 
     /** 정리 기록 화면이 한 번에 보는 행 수. */
     private static final int ACTION_LOG_PAGE = 200;
+
+    /** 배치 하나의 파일별 상세를 한 번에 돌려주는 상한. REST 의 MAX_IDS 와 같다. */
+    private static final int BATCH_DETAIL_MAX = 5000;
 
     public static final String RUNNING = "RUNNING";
     public static final String DONE = "DONE";
@@ -137,12 +145,231 @@ public class ScanStore
         run.save();
     }
 
-    /** 최근 정리 기록. 최신이 먼저다. */
-    public List<AjActionLog> recentActions()
+    /**
+     * 최근 정리 <b>배치</b>. 최신이 먼저다.
+     *
+     * <p>파일별 행이 아니라 요약을 돌려준다. 파일별로 주면 250개짜리 실행 한 번이
+     * 한 쪽을 통째로 차지해 이전 실행들이 화면에서 사라진다(실측 35번 부수 관찰).
+     */
+    public List<AjActionBatch> recentBatches()
     {
-        return Arrays.asList(ao.find(AjActionLog.class,
-                Query.select().order("ID DESC").limit(ACTION_LOG_PAGE)));
+        // ID 가 아니라 시각으로 정렬한다. 1.1.0 기록의 요약은 뒤늦게 만들어져 ID 가 크므로
+        // ID 순이면 1년 전 실행이 어제 실행 위에 온다. AT 에는 인덱스가 있다.
+        return Arrays.asList(ao.find(AjActionBatch.class,
+                Query.select().order("AT DESC, ID DESC").limit(ACTION_LOG_PAGE)));
     }
+
+    /**
+     * 배치 하나의 파일별 내역.
+     *
+     * <p>1.2.0 이전에 실행한 정리에는 요약 행이 없다. 그 배치의 식별자를 알면 이 조회는
+     * 그대로 동작한다 — 파일별 행의 형식은 바뀌지 않았다.
+     */
+    public List<AjActionLog> actionsOfBatch(String batchId)
+    {
+        if (batchId == null || batchId.isEmpty())
+        {
+            return new ArrayList<AjActionLog>();
+        }
+        // 상한은 한 실행이 가질 수 있는 최대 파일 수다(REST 의 MAX_IDS). 목록용 200 을
+        // 여기에 쓰면 1,020개짜리 실행에서 820개의 감사 기록이 응답에서 조용히 빠진다.
+        return Arrays.asList(ao.find(AjActionLog.class,
+                Query.select().where("BATCH_ID = ?", batchId).order("ID ASC")
+                        .limit(BATCH_DETAIL_MAX)));
+    }
+
+    /** 배치 하나의 파일별 행 수. 상세 응답이 잘렸는지 받는 쪽이 알 수 있게 함께 낸다. */
+    public int countActionsOfBatch(String batchId)
+    {
+        if (batchId == null || batchId.isEmpty())
+        {
+            return 0;
+        }
+        return ao.count(AjActionLog.class, Query.select().where("BATCH_ID = ?", batchId));
+    }
+
+    /**
+     * 1.2.0 이전에 실행한 정리에 요약 행을 붙인다. <b>여러 번 불러도 안전하다.</b>
+     *
+     * <p>왜 필요한가. 1.1.0 까지는 파일별 행만 남겼다. 목록을 요약 기준으로 바꾸면서
+     * 그대로 두면 <b>업그레이드하는 순간 이전 기록이 화면에서 통째로 사라진다</b> —
+     * DB 에는 그대로 있는데 보이지 않는 것이 가장 나쁜 쪽이다. 되돌릴 수 없는 삭제의
+     * 기록이라 더 그렇다.
+     *
+     * <p><b>호출자는 {@code WorkLock} 을 쥐고 있어야 한다.</b> 파일별 행은 파일마다
+     * 커밋되고 요약은 실행이 끝날 때 쓰이므로, 도는 실행의 배치는 잠깐 "요약 없는 배치"로
+     * 보인다. 잠금 없이 돌리면 그 배치에 반쪽짜리 요약을 붙이고 잠시 뒤 진짜 요약이 또
+     * 붙어 요약이 둘이 된다. 잠금을 쥐면 도는 실행이 없다는 것이 보장된다.
+     *
+     * <p><b>비용.</b> {@code Query.select()} 는 기본키만 고르고 필드는 행마다 따로 읽는다
+     * (AO 3.2.4). 파일별 행 전부를 그렇게 읽으면 행 수만큼 조회가 나간다. 그래서
+     * {@code stream()} 으로 필요한 열만 한 문장에 읽고, 요약이 없는 배치의 행만 모은다.
+     *
+     * <p><b>끝맺음은 {@code RECONSTRUCTED} 로 적는다.</b> 파일별 행만으로는 그 실행이
+     * 끝까지 갔는지 도중에 멈췄는지 알 수 없다. 모르는 것을 {@code DONE} 이라고 적으면
+     * 기록이 아니라 추측이 된다.
+     *
+     * @return 새로 만든 요약 행 수
+     */
+    public int backfillBatches()
+    {
+        final Set<String> known = new HashSet<String>();
+        ao.stream(AjActionBatch.class, Query.select("ID, BATCH_ID"),
+                new EntityStreamCallback<AjActionBatch, Integer>()
+                {
+                    @Override
+                    public void onRowRead(AjActionBatch row)
+                    {
+                        known.add(row.getBatchId());
+                    }
+                });
+
+        final Map<String, Legacy> grouped = new LinkedHashMap<String, Legacy>();
+        ao.stream(AjActionLog.class,
+                Query.select("ID, BATCH_ID, AT, REQUESTED_BY, KEEP_VERSIONS, OUTCOME, "
+                        + "VERSIONS_REMOVED, BYTES_REMOVED, SPACE_KEY").order("ID ASC"),
+                new EntityStreamCallback<AjActionLog, Integer>()
+                {
+                    @Override
+                    public void onRowRead(AjActionLog row)
+                    {
+                        String id = row.getBatchId();
+                        if (id == null || id.isEmpty() || known.contains(id))
+                        {
+                            return;
+                        }
+                        Legacy acc = grouped.get(id);
+                        if (acc == null)
+                        {
+                            acc = new Legacy(row.getRequestedBy(), row.getKeepVersions());
+                            grouped.put(id, acc);
+                        }
+                        acc.take(row);
+                    }
+                });
+
+        for (Map.Entry<String, Legacy> entry : grouped.entrySet())
+        {
+            Legacy acc = entry.getValue();
+            saveBatch(entry.getKey(), acc.first, acc.last, acc.requestedBy, acc.keep,
+                    acc.done, acc.skipped, acc.failed, acc.versions, acc.bytes,
+                    acc.spaces(), "RECONSTRUCTED", "pre-1.2.0");
+        }
+        return grouped.size();
+    }
+
+    /** 요약 없는 옛 배치 하나의 누계. */
+    private static final class Legacy
+    {
+        final String requestedBy;
+        final int keep;
+        Date first;
+        Date last;
+        int done;
+        int skipped;
+        int failed;
+        int versions;
+        long bytes;
+        final Set<String> spaceKeys = new LinkedHashSet<String>();
+
+        Legacy(String requestedBy, int keep)
+        {
+            this.requestedBy = requestedBy;
+            this.keep = keep;
+        }
+
+        void take(AjActionLog row)
+        {
+            Date at = row.getAt();
+            if (at != null)
+            {
+                if (first == null || at.before(first))
+                {
+                    first = at;
+                }
+                if (last == null || at.after(last))
+                {
+                    last = at;
+                }
+            }
+            String outcome = row.getOutcome();
+            if ("DONE".equals(outcome))
+            {
+                done++;
+            }
+            else if ("SKIPPED".equals(outcome))
+            {
+                skipped++;
+            }
+            else
+            {
+                failed++;
+            }
+            versions += row.getVersionsRemoved();
+            bytes += row.getBytesRemoved();
+            if (row.getSpaceKey() != null)
+            {
+                spaceKeys.add(row.getSpaceKey());
+            }
+        }
+
+        String spaces()
+        {
+            StringBuilder out = new StringBuilder();
+            for (String key : spaceKeys)
+            {
+                out.append(out.length() == 0 ? "" : ",").append(key);
+            }
+            return out.toString();
+        }
+    }
+
+    /** 정리 한 번의 요약을 남긴다. <b>끝맺음을 가리지 않는다</b> — 취소도 실패도 남는다. */
+    public void saveBatch(String batchId, Date startedAt, Date finishedAt, String requestedBy,
+                          int keep, int filesDone, int filesSkipped, int filesFailed,
+                          int versionsRemoved, long bytesRemoved, String spaceKeys,
+                          String outcome, String detail)
+    {
+        AjActionBatch row = ao.create(AjActionBatch.class);
+        row.setBatchId(clip(batchId));
+        row.setAt(startedAt);
+        row.setFinishedAt(finishedAt);
+        row.setRequestedBy(clip(requestedBy));
+        row.setKeepVersions(keep);
+        row.setFilesDone(filesDone);
+        row.setFilesSkipped(filesSkipped);
+        row.setFilesFailed(filesFailed);
+        row.setVersionsRemoved(versionsRemoved);
+        row.setBytesRemoved(bytesRemoved);
+        row.setSpaceKeys(clip(spaceKeys));
+        row.setOutcome(outcome);
+        row.setDetail(clip(detail));
+        row.save();
+    }
+
+    /**
+     * 보관 기간을 넘긴 정리 기록을 지운다. 파일별 행과 요약 행을 함께 지운다.
+     *
+     * <p><b>스케줄러를 쓰지 않는다.</b> 정리할 때마다 부른다. 정리를 안 하면 이 표는
+     * 자라지 않으므로 그것으로 충분하고, 스케줄 작업을 붙이면 클러스터에서 어느 노드가
+     * 도는지를 새로 다뤄야 한다 — 검증하지 못할 문제를 하나 더 만들지 않는다.
+     *
+     * <p>{@code deleteWithSQL} 로 한 문장씩 보낸다. 행마다 {@code ao.delete} 를 부르면
+     * 오래된 기록 수만 개에 삭제문이 그만큼 나간다.
+     *
+     * @param days 보관 일수. 0 이하면 아무것도 지우지 않는다
+     */
+    public void pruneActions(int days)
+    {
+        if (days <= 0)
+        {
+            return;
+        }
+        Date cutoff = new Date(System.currentTimeMillis() - days * 24L * 60L * 60L * 1000L);
+        ao.deleteWithSQL(AjActionLog.class, "AT < ?", cutoff);
+        ao.deleteWithSQL(AjActionBatch.class, "AT < ?", cutoff);
+    }
+
 
     public Map<Integer, List<AjRefHit>> refsOf(List<AjAttachment> rows)
     {

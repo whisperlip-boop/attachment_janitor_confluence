@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 구버전 정리. <b>이 앱에서 무언가를 지우는 유일한 곳이다.</b>
@@ -171,6 +170,11 @@ public class CleanupService
         public int versionsRemoved;
         public long bytesRemoved;
         public final List<String> notes = new ArrayList<String>();
+        /** 도중에 멈췄나. 멈춘 실행도 배치 요약 행을 남긴다 — 흔적 없는 삭제는 없다. */
+        public boolean cancelled;
+        /** 건드린 스페이스. 배치 요약 한 줄에 "어디를 지웠나"를 적기 위한 것이다. */
+        public final java.util.LinkedHashSet<String> spaceKeys =
+                new java.util.LinkedHashSet<String>();
 
         Result(String batchId)
         {
@@ -189,11 +193,54 @@ public class CleanupService
     }
 
     /**
+     * 오래 도는 쪽이 밖에 알리고 밖의 뜻을 듣는 통로.
+     *
+     * <p>이 앱의 다른 긴 루프({@code BodyWalker} · {@code DuplicateFinder})와 같은 꼴이다.
+     * 루프 <b>안에서</b> 취소를 확인하지 않으면 파일이 많은 정리 하나가 취소를 몇 분
+     * 지연시킨다.
+     */
+    public interface Watcher
+    {
+        boolean cancelled();
+
+        /** 파일 하나를 처리할 때마다. 인자는 지금까지의 누계다. */
+        void advanced(Result running);
+    }
+
+    /** 아무것도 보지 않고 아무것도 멈추지 않는 감시자. 동기 경로가 쓴다. */
+    public static final Watcher IGNORING = new Watcher()
+    {
+        @Override
+        public boolean cancelled()
+        {
+            return false;
+        }
+
+        @Override
+        public void advanced(Result running)
+        {
+        }
+    };
+
+    /**
      * 무엇을 지울지 <b>지금 이 순간의 DB 를 읽어</b> 계산한다.
      *
      * <p>저장된 스캔 결과를 쓰지 않는다. 스캔은 스냅샷이고 며칠 전 것일 수 있다.
      */
     public Preview preview(final List<Long> attachmentIds, final int keep)
+    {
+        return preview(attachmentIds, keep, IGNORING);
+    }
+
+    /**
+     * 위와 같되 도중에 멈출 수 있다.
+     *
+     * <p>미리보기도 첨부 하나마다 {@code getPreviousVersions()} 를 부르므로 약 14ms 씩
+     * 든다(실측 4번). 첨부 수천 개면 이것만으로 몇 분이다 — 취소가 여기에도 닿아야 한다.
+     * 멈추면 그때까지 읽은 것만 담긴 미리보기가 나오므로, 호출자는 취소 여부를 따로
+     * 확인하고 <b>그 미리보기로 실행하지 않는다.</b>
+     */
+    public Preview preview(final List<Long> attachmentIds, final int keep, final Watcher watcher)
     {
         final Preview preview = new Preview(Math.max(VersionPlan.MIN_KEEP, keep));
         transactionTemplate.execute(new TransactionCallback<Void>()
@@ -203,6 +250,10 @@ public class CleanupService
             {
                 for (Long id : attachmentIds)
                 {
+                    if (watcher.cancelled())
+                    {
+                        return null;
+                    }
                     preview.items.add(inspect(id.longValue(), preview.keep));
                 }
                 return null;
@@ -274,9 +325,18 @@ public class CleanupService
      *                    방금 계산한 것끼리 비교하는 빈 절차가 된다
      * @param requestedBy 실행한 관리자
      */
-    public Result execute(Preview preview, Map<Long, String> expected, String requestedBy)
+    /**
+     * <p>배치 식별자는 밖에서 받는다. 비동기 실행이 시작하자마자 202 로 이 값을 돌려줘야
+     * 하는데, 여기서 만들면 그때는 아직 없다.
+     *
+     * <p><b>취소해도 이미 지운 것은 돌아오지 않는다.</b> 버전 단위 휴지통이 없다(실측
+     * 30번). 취소가 뜻하는 것은 "여기서부터는 더 지우지 마라" 하나뿐이고, 결과에는
+     * 그때까지 지운 것이 정직하게 담긴다.
+     */
+    public Result execute(Preview preview, Map<Long, String> expected, String requestedBy,
+                          String batchId, Watcher watcher)
     {
-        Result result = new Result(UUID.randomUUID().toString());
+        Result result = new Result(batchId);
         Date at = new Date();
 
         for (Item planned : preview.items)
@@ -285,8 +345,14 @@ public class CleanupService
             {
                 continue;
             }
+            if (watcher.cancelled())
+            {
+                result.cancelled = true;
+                return result;
+            }
             applyOne(planned, expected.get(Long.valueOf(planned.attachmentId)),
                     preview.keep, requestedBy, at, result);
+            watcher.advanced(result);
         }
         return result;
     }
@@ -411,6 +477,10 @@ public class CleanupService
     private void record(Item item, int keep, String requestedBy, Date at, Result result,
                         String outcome, String detail, int removed, long bytes, String numbers)
     {
+        if (item.spaceKey != null)
+        {
+            result.spaceKeys.add(item.spaceKey);
+        }
         AjActionLog row = ao.create(AjActionLog.class);
         row.setBatchId(result.batchId);
         row.setAt(at);

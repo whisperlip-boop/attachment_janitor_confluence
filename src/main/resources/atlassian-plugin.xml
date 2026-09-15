@@ -7,7 +7,10 @@
              anything it cannot read. tools/make-icons.py generates both. -->
         <param name="plugin-icon">images/pluginIcon.png</param>
         <param name="plugin-logo">images/pluginLogo.png</param>
-        <param name="atlassian-data-center-compatible">true</param>
+        <!-- Data Center 호환을 선언하지 않는다. 클러스터 잠금(WorkLock)은 들어 있지만
+             노드 두 대에서 검증하지 못했다 — 여기에 클러스터가 없다. 단일 노드 시험이
+             못 잡는 결함을 이미 한 번 겪었으므로(실측 36번) 검증한 만큼만 주장한다.
+             2노드에서 확인하면 이 줄을 되살린다. -->
     </plugin-info>
 
     <resource type="i18n" name="i18n" location="attachment-janitor"/>
@@ -21,6 +24,9 @@
         <!-- 구버전 정리 기록. 등록을 빠뜨리면 컴파일도 기동도 되고 실행 순간에만
              테이블 없음으로 죽는다(실측 13번). -->
         <entity>co.bskim.confluence.attachjanitor.ao.AjActionLog</entity>
+        <!-- 정리 실행 하나의 요약. 파일별 행만으로는 큰 배치 하나가 기록 전체를
+             가린다(실측 35번 부수 관찰). -->
+        <entity>co.bskim.confluence.attachjanitor.ao.AjActionBatch</entity>
     </ao>
 
     <rest key="attachment-janitor-rest" path="/attachment-janitor" version="1.0">

@@ -169,6 +169,7 @@ public class HelpPage
                                         "aj.help.cleanup.rule.nolabel",
                                         "aj.help.cleanup.rule.preview",
                                         "aj.help.cleanup.rule.recheck",
+                                        "aj.help.cleanup.rule.background",
                                         "aj.help.cleanup.rule.log",
                                         "aj.help.cleanup.rule.websudo"})
         {

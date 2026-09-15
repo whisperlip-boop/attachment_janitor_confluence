@@ -1,18 +1,23 @@
 package co.bskim.confluence.attachjanitor.rest;
 
 import co.bskim.confluence.attachjanitor.ao.AjAttachment;
+import co.bskim.confluence.attachjanitor.ao.AjActionBatch;
 import co.bskim.confluence.attachjanitor.ao.AjActionLog;
+import co.bskim.confluence.attachjanitor.clean.CleanupRunner;
 import co.bskim.confluence.attachjanitor.clean.CleanupService;
-import co.bskim.confluence.attachjanitor.clean.VersionPlan;
 import co.bskim.confluence.attachjanitor.lock.WorkLock;
+import co.bskim.confluence.attachjanitor.clean.VersionPlan;
 import com.atlassian.confluence.security.websudo.WebSudoManager;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import co.bskim.confluence.attachjanitor.ao.AjDupGroup;
 import co.bskim.confluence.attachjanitor.ao.AjRefHit;
 import co.bskim.confluence.attachjanitor.ao.AjScanRun;
 import co.bskim.confluence.attachjanitor.ao.AjSpaceStat;
 import co.bskim.confluence.attachjanitor.model.Badge;
 import co.bskim.confluence.attachjanitor.model.Label;
+import co.bskim.confluence.attachjanitor.model.CleanupProgress;
 import co.bskim.confluence.attachjanitor.model.ScanProgress;
 import co.bskim.confluence.attachjanitor.scan.ScanService;
 import co.bskim.confluence.attachjanitor.settings.Settings;
@@ -53,40 +58,48 @@ import java.util.TimeZone;
  * 오래 걸리면 폴링 요청이 도중에 튕기고, 관리자는 "눌렀는데 버튼이 죽었다"만 본다.
  * 화면을 그리는 서블릿이 웹수도를 지고, 여기서는 매 호출 관리자 권한을 확인한다.
  *
- * <p><b>지우는 엔드포인트는 반대다.</b> {@code /cleanup*} 은 웹수도를 확인하고 없으면
- * 401 에 {@code websudo} 표시를 붙여 돌려준다 — 화면이 그걸 보고 재인증으로 보낸다.
- * 되돌릴 수 없는 작업 앞에서 몇 초를 아끼지 않는다.
+ * <p><b>지우는 두 요청은 반대다.</b> {@code POST /cleanup} 과 {@code POST /cleanup/preview}
+ * 는 웹수도를 확인하고 없으면 401 에 {@code websudo} 표시를 붙여 돌려준다 — 화면이 그걸
+ * 보고 재인증으로 보낸다. 되돌릴 수 없는 작업 앞에서 몇 초를 아끼지 않는다.
+ * 진행률 조회 · 기록 조회 · 취소는 관리자 확인만 본다 — 폴링이 웹수도를 갱신하지 않으므로
+ * 긴 정리 도중에 확인 시간이 지나도 화면이 따라가고 멈출 수 있어야 한다.
  */
 @Named
 @Path("/report")
 @Produces(MediaType.APPLICATION_JSON)
 public class JanitorResource
 {
-    /** 한 번에 받을 수 있는 첨부 수. 넘으면 요청 전체를 거절한다. */
-    private static final int MAX_IDS = 5000;
+    private static final Logger log = LoggerFactory.getLogger(JanitorResource.class);
+
+    /** 한 번에 받을 수 있는 첨부 수. 넘으면 요청 전체를 거절한다. 서블릿이 화면에 실어 보낸다. */
+    public static final int MAX_IDS = 5000;
 
     private final ScanService scanService;
     private final ScanStore store;
     private final SettingsStore settingsStore;
     private final AccessGuard access;
     private final CleanupService cleanupService;
-    private final WebSudoManager webSudoManager;
+    private final CleanupRunner cleanupRunner;
     private final WorkLock workLock;
+    /** 1.2.0 이전 기록에 요약을 붙이는 일이 이 JVM 에서 <b>성공적으로</b> 끝났나. */
+    private volatile boolean backfilled;
+    private final WebSudoManager webSudoManager;
 
     @Inject
     public JanitorResource(ScanService scanService, ScanStore store,
                            SettingsStore settingsStore, AccessGuard access,
-                           CleanupService cleanupService,
-                           @ComponentImport WebSudoManager webSudoManager,
-                           WorkLock workLock)
+                           CleanupService cleanupService, CleanupRunner cleanupRunner,
+                           WorkLock workLock,
+                           @ComponentImport WebSudoManager webSudoManager)
     {
         this.scanService = scanService;
         this.store = store;
         this.settingsStore = settingsStore;
         this.access = access;
         this.cleanupService = cleanupService;
-        this.webSudoManager = webSudoManager;
+        this.cleanupRunner = cleanupRunner;
         this.workLock = workLock;
+        this.webSudoManager = webSudoManager;
     }
 
     // ---------------------------------------------------------------- 랭킹
@@ -286,7 +299,8 @@ public class JanitorResource
                         JsonReader.string(body, "duplicateMode", current.duplicateMode.name()))
                         ? Settings.DuplicateMode.FULL : Settings.DuplicateMode.QUICK,
                 JsonReader.number(body, "duplicateByteBudget", current.duplicateByteBudget),
-                (int) JsonReader.number(body, "keepRuns", current.keepRuns));
+                (int) JsonReader.number(body, "keepRuns", current.keepRuns),
+                (int) JsonReader.number(body, "keepActionDays", current.keepActionDays));
         settingsStore.save(updated);
         // 저장한 값을 그대로 돌려주지 않고 다시 읽는다 — 상·하한에 걸려 조정된 값을
         // 화면이 보아야 한다.
@@ -481,79 +495,238 @@ public class JanitorResource
 
         int keep = (int) Math.max(VersionPlan.MIN_KEEP, JsonReader.number(body, "keep", 3));
 
-        // 요청을 다 읽은 뒤에 잠금을 잡는다 — 형식이 틀린 요청이 잠금을 쥐지 않게.
+        // 요청을 다 읽은 뒤에 시작한다 — 형식이 틀린 요청이 잠금을 쥐지 않게.
         // 스캔이 도는 중에는 지우지 않는다: 스캔이 읽는 것과 우리가 지우는 것이 같은 행이라
         // 결과가 반쯤 옛것이 되고, 그 실행은 아직 완료 전이라 markStale() 이 표시하지도
         // 못한다. 노드가 둘 이상이면 이 배타는 잠금으로만 성립한다.
-        if (!workLock.tryAcquire("cleanup"))
+        // 잠금은 워커 스레드가 잡는다 — 잡은 스레드가 놓아야 하기 때문이다(실측 35번).
+        String batchId = cleanupRunner.start(ids, keep, expected, access.currentUserName());
+        if (batchId == null)
         {
             return busy();
         }
-        CleanupService.Result result;
-        try
-        {
-            CleanupService.Preview preview = cleanupService.preview(ids, keep);
-            result = cleanupService.execute(preview, expected, access.currentUserName());
-
-            // 저장된 스캔 결과의 구버전 수치는 이제 틀렸다. 다음 스캔까지 그렇다고 적는다.
-            store.markStale();
-        }
-        finally
-        {
-            workLock.release();
-        }
-
-        Json done = Json.array();
-        for (CleanupService.Done item : result.done)
-        {
-            done.add(Json.object()
-                    .put("attachmentId", item.attachmentId)
-                    .put("versionsRemoved", item.versionsRemoved)
-                    .put("bytesRemoved", item.bytesRemoved)
-                    .put("outcome", item.outcome)
-                    .end());
-        }
-        return Response.ok(Json.object()
-                .putRaw("done", done.end())
-                .put("batchId", result.batchId)
-                .put("filesDone", result.filesDone)
-                .put("filesSkipped", result.filesSkipped)
-                .put("filesFailed", result.filesFailed)
-                .put("versionsRemoved", result.versionsRemoved)
-                .put("bytesRemoved", result.bytesRemoved)
-                .put("keep", keep)
-                .end()).build();
+        // 202 다. 여기서 끝까지 기다리지 않는다 — 파일당 약 105ms 라 상한이면 9분이고,
+        // 그동안 연결에 아무것도 흐르지 않아 앞단의 유휴 시간 초과에 걸린다(실측 37번).
+        return Response.status(Response.Status.ACCEPTED)
+                .entity(cleanupProgressJson(cleanupRunner.progress(), true)).build();
     }
 
-    /** 최근 실행 기록. 되돌릴 수 없는 작업이라 흔적을 볼 수 있어야 한다. */
+    /**
+     * 정리가 어디까지 갔나. 끝났으면 파일별 내역까지 함께 온다.
+     *
+     * <p><b>표를 다시 보내지 않는 가벼운 엔드포인트다.</b> 8분짜리 정리를 1.5초마다
+     * 폴링하는데 매번 수천 행짜리 보고를 실어 보낼 수는 없다.
+     */
     @GET
-    @Path("/cleanup/log")
-    public Response cleanupLog()
+    @Path("/cleanup")
+    public Response cleanupStatus()
     {
         Response denial = guard();
         if (denial != null)
         {
             return denial;
         }
+        return Response.ok(cleanupProgressJson(cleanupRunner.progress(), true)).build();
+    }
+
+    /**
+     * 도는 정리를 멈춘다.
+     *
+     * <p><b>이미 지운 버전은 돌아오지 않는다.</b> 멈추는 것은 그다음부터다.
+     * 지우는 작업을 건드리므로 조회가 아니라 변경과 같은 문지기를 쓴다.
+     */
+    /**
+     * @param batchId 멈추려는 실행. 지금 도는 것과 다르면 아무 일도 하지 않는다 — 옛 탭의
+     *                중지 단추가 다른 관리자의 새 실행을 세우면 안 된다. 응답의
+     *                {@code cancelled} 가 실제로 걸렸는지 말한다
+     */
+    @DELETE
+    @Path("/cleanup")
+    public Response cancelCleanup(@QueryParam("batch") String batchId)
+    {
+        // 웹수도는 지우는 두 요청(POST /cleanup, POST /cleanup/preview)에만 건다.
+        // 여기와 GET 들은 관리자 확인만 본다. 이유: 멈추는 것은 덜 지우는 쪽이다. 8분짜리
+        // 정리가 도는 동안 폴링은 웹수도를 갱신하지 않으므로, 멈추기에 웹수도를 걸면
+        // 시간이 지난 관리자가 **도는 삭제를 세울 수 없게 된다.** 인증이 만료됐을 때
+        // "계속 지운다"가 기본값이 되어서는 안 된다. 스캔 취소(DELETE /scan)도 같다.
+        Response denial = guard();
+        if (denial != null)
+        {
+            return denial;
+        }
+        boolean applied = cleanupRunner.cancel(batchId);
+        return Response.ok(Json.object()
+                .put("cancelled", applied)
+                .putRaw("progress", cleanupProgressJson(cleanupRunner.progress(), true))
+                .end()).build();
+    }
+
+    /**
+     * 정리 기록. 기본은 <b>실행 단위 요약</b>이고, 배치 하나를 지정하면 그 실행의
+     * 파일별 내역이다.
+     *
+     * <p>파일별로만 주면 250개짜리 실행 한 번이 한 쪽을 통째로 차지해 이전 실행들이
+     * 화면에서 사라진다(실측 35번 부수 관찰). 파일별 행을 없앤 것이 아니라 한 겹
+     * 접어 둔 것이다 — "어느 파일의 몇 번 버전이 사라졌나"가 이 기록의 존재 이유다.
+     *
+     * <p>날짜로 묶는 것은 받는 쪽 몫이다. {@code at} 이 ISO 시각이므로 그것으로 묶으면
+     * 되고, 서버가 날짜 문자열을 만들면 어느 시간대인지를 새로 정해야 한다.
+     * <b>AO 에는 테이블 분할이 없어서</b> "일 단위로 나눠 저장"은 어차피 불가능하다.
+     *
+     * @param batchId 주면 그 실행의 파일별 내역. 없으면 최근 실행 요약 목록
+     */
+    @GET
+    @Path("/cleanup/log")
+    public Response cleanupLog(@QueryParam("batch") String batchId)
+    {
+        Response denial = guard();
+        if (denial != null)
+        {
+            return denial;
+        }
+        backfillOnce();
+
+        if (batchId != null && !batchId.isEmpty())
+        {
+            Json rows = Json.array();
+            for (AjActionLog row : store.actionsOfBatch(batchId))
+            {
+                rows.add(Json.object()
+                        .put("batchId", row.getBatchId())
+                        .put("at", iso(row.getAt()))
+                        .put("requestedBy", row.getRequestedBy())
+                        .put("spaceKey", row.getSpaceKey())
+                        .put("fileName", row.getFileName())
+                        .put("containerId", row.getContainerId())
+                        .put("keepVersions", row.getKeepVersions())
+                        .put("versionsRemoved", row.getVersionsRemoved())
+                        .put("bytesRemoved", row.getBytesRemoved())
+                        .put("versionNumbers", row.getVersionNumbers())
+                        .put("outcome", row.getOutcome())
+                        .put("detail", row.getDetail())
+                        .end());
+            }
+            return Response.ok(Json.object()
+                    .put("batchId", batchId)
+                    // 받는 쪽이 잘렸는지 알 수 있게 전체 수를 함께 낸다.
+                    .put("total", store.countActionsOfBatch(batchId))
+                    .putRaw("actions", rows.end()).end()).build();
+        }
+
         Json rows = Json.array();
-        for (AjActionLog row : store.recentActions())
+        for (AjActionBatch row : store.recentBatches())
         {
             rows.add(Json.object()
                     .put("batchId", row.getBatchId())
                     .put("at", iso(row.getAt()))
+                    .put("finishedAt", iso(row.getFinishedAt()))
                     .put("requestedBy", row.getRequestedBy())
-                    .put("spaceKey", row.getSpaceKey())
-                    .put("fileName", row.getFileName())
-                    .put("containerId", row.getContainerId())
                     .put("keepVersions", row.getKeepVersions())
+                    .put("filesDone", row.getFilesDone())
+                    .put("filesSkipped", row.getFilesSkipped())
+                    .put("filesFailed", row.getFilesFailed())
                     .put("versionsRemoved", row.getVersionsRemoved())
                     .put("bytesRemoved", row.getBytesRemoved())
-                    .put("versionNumbers", row.getVersionNumbers())
+                    .put("spaceKeys", row.getSpaceKeys())
                     .put("outcome", row.getOutcome())
                     .put("detail", row.getDetail())
                     .end());
         }
-        return Response.ok(Json.object().putRaw("actions", rows.end()).end()).build();
+        return Response.ok(Json.object()
+                .put("keepActionDays", settingsStore.load().keepActionDays)
+                .putRaw("batches", rows.end()).end()).build();
+    }
+
+    /**
+     * 1.2.0 이전 기록에 요약을 붙인다. JVM 이 뜬 뒤 <b>성공한</b> 첫 한 번만 실제로 돈다.
+     *
+     * <p>세 가지를 지킨다. 전부 리뷰에서 잡힌 것이다.
+     * <ul>
+     *   <li><b>{@code WorkLock} 을 쥐고 돈다.</b> 도는 정리의 배치는 요약이 아직 없어 옛
+     *       배치와 구별이 안 되고, 잠금 없이 돌리면 그 배치에 반쪽짜리 요약이 붙고 잠시 뒤
+     *       진짜가 또 붙는다. 잠금이 잡혔다는 것은 도는 실행이 없다는 뜻이고, 동시에 들어온
+     *       두 요청 중 하나만 통과한다는 뜻이다. 못 잡으면 <b>이번은 건너뛴다</b> —
+     *       다음 조회가 다시 시도한다.</li>
+     *   <li><b>실패하면 표시를 남기지 않는다.</b> 한 번 어긋났다고 JVM 이 내려갈 때까지
+     *       1.1.0 기록을 숨기면, 이 기능이 막으려던 바로 그 상태가 된다.</li>
+     *   <li>요청 스레드에는 세션이 붙어 있어 트랜잭션을 따로 열지 않는다(스캔 결과의
+     *       {@code markStale()} 이 예전에 그랬던 것과 같다).</li>
+     * </ul>
+     */
+    private void backfillOnce()
+    {
+        if (backfilled)
+        {
+            return;
+        }
+        if (!workLock.tryAcquire("backfill"))
+        {
+            return;
+        }
+        try
+        {
+            int made = store.backfillBatches();
+            if (made > 0)
+            {
+                log.info("Attachment Janitor: reconstructed {} pre-1.2.0 cleanup batches",
+                        Integer.valueOf(made));
+            }
+            backfilled = true;
+        }
+        catch (Throwable error)
+        {
+            // 요약을 못 붙여도 새 기록은 정상이다. 조용히 넘기지는 않고, 표시도 남기지 않는다.
+            log.warn("Attachment Janitor: could not reconstruct old cleanup batches", error);
+        }
+        finally
+        {
+            workLock.release();
+        }
+    }
+
+    /**
+     * 정리 진행률. 끝난 스냅샷에는 파일별 내역이 함께 실린다.
+     *
+     * <p>진행률과 결과가 <b>같은 응답</b>에 오는 것이 중요하다. 따로 두면 화면이
+     * "끝났다"를 먼저 보고 내역 없이 표를 그린다.
+     */
+    /**
+     * @param withDetails 파일별 내역을 실을지. 보고 응답(envelope)은 false 다 — 5,000개짜리
+     *                    정리 뒤 JVM 이 살아 있는 동안 모든 보고 응답에 400KB 를 실어
+     *                    보내게 되고, 화면은 거기서 {@code running} 만 읽는다
+     */
+    private static String cleanupProgressJson(CleanupProgress progress, boolean withDetails)
+    {
+        Json done = Json.array();
+        if (withDetails)
+        {
+            for (CleanupService.Done item : progress.done)
+            {
+                done.add(Json.object()
+                        .put("attachmentId", item.attachmentId)
+                        .put("versionsRemoved", item.versionsRemoved)
+                        .put("bytesRemoved", item.bytesRemoved)
+                        .put("outcome", item.outcome)
+                        .end());
+            }
+        }
+        return Json.object()
+                .put("state", progress.state.name())
+                .put("running", progress.isRunning())
+                .put("batchId", progress.batchId)
+                .put("keep", progress.keep)
+                .put("filesTotal", progress.filesTotal)
+                .put("filesDone", progress.filesDone)
+                .put("filesSkipped", progress.filesSkipped)
+                .put("filesFailed", progress.filesFailed)
+                .put("versionsRemoved", progress.versionsRemoved)
+                .put("bytesRemoved", progress.bytesRemoved)
+                .put("percent", progress.percent())
+                .put("startedAt", iso(progress.startedAt))
+                .put("finishedAt", iso(progress.finishedAt))
+                .put("message", progress.message)
+                .putRaw("done", done.end())
+                .end();
     }
 
     private static String previewJson(CleanupService.Preview preview)
@@ -729,7 +902,11 @@ public class JanitorResource
                 .put("stale", (complete != null && latest != null
                         && complete.getID() != latest.getID())
                         || (complete != null && complete.isSupersededByAction()))
-                .putRaw("progress", progressJson(scanService.progress()));
+                .putRaw("progress", progressJson(scanService.progress()))
+                // 정리도 함께 싣는다 — 내역은 빼고 상태만. 이게 없으면 다른 관리자의
+                // 화면은 스캔 단추가 왜 409 인지 알 수 없고, 화면을 새로 열었을 때 도는
+                // 정리에 다시 붙지도 못한다. 내역은 GET /cleanup 이 준다.
+                .putRaw("cleanup", cleanupProgressJson(cleanupRunner.progress(), false));
     }
 
     /**
@@ -769,6 +946,7 @@ public class JanitorResource
                 .put("duplicateMode", settings.duplicateMode.name())
                 .put("duplicateByteBudget", settings.duplicateByteBudget)
                 .put("keepRuns", settings.keepRuns)
+                .put("keepActionDays", settings.keepActionDays)
                 .end();
     }
 

@@ -43,7 +43,8 @@ public class SettingsStore
                         string("duplicateMode", defaults.duplicateMode.name()))
                         ? Settings.DuplicateMode.FULL : Settings.DuplicateMode.QUICK,
                 number("duplicateByteBudget", defaults.duplicateByteBudget),
-                (int) number("keepRuns", defaults.keepRuns));
+                (int) number("keepRuns", defaults.keepRuns),
+                (int) number("keepActionDays", defaults.keepActionDays));
     }
 
     public void save(Settings settings)
@@ -58,6 +59,9 @@ public class SettingsStore
                 String.valueOf(clampLong(settings.duplicateByteBudget, 0, 1L << 45)));
         // 세대를 0으로 두면 방금 저장한 결과까지 지워진다. 1 이 하한이다.
         put("keepRuns", String.valueOf(clampInt(settings.keepRuns, 1, 50)));
+        // 되돌릴 수 없는 삭제의 감사 기록이다. 며칠짜리 창은 감사 기록이 아니므로
+        // 하한을 30일로 둔다. 상한 100년은 사실상 "안 지움"이다.
+        put("keepActionDays", String.valueOf(clampInt(settings.keepActionDays, 30, 36500)));
     }
 
     private void put(String key, String value)
